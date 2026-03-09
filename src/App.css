@@ -462,6 +462,140 @@ html, body, #root {
   color: var(--green);
 }
 
+/* Week Calendar */
+.week-nav {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.week-label {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.week-today-btn {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--accent-light);
+  padding: 6px 14px;
+  border-radius: 8px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+  margin-left: auto;
+  transition: border-color 0.15s, background 0.15s;
+}
+.week-today-btn:hover {
+  border-color: var(--accent);
+  background: rgba(108, 99, 255, 0.1);
+}
+
+.week-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 0;
+  border: 1px solid #1e293b;
+  border-radius: 12px;
+  overflow: hidden;
+  margin-bottom: 0.5rem;
+}
+
+.week-cell {
+  background: #0f172a;
+  border-right: 1px solid #1e293b;
+  min-height: 100px;
+  display: flex;
+  flex-direction: column;
+}
+.week-cell:last-child {
+  border-right: none;
+}
+
+.week-cell-today {
+  background: #1e293b;
+}
+
+.week-cell-weekend {
+  border-left: 2px solid var(--accent);
+}
+
+.week-cell-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  border-bottom: 1px solid #1e293b;
+}
+
+.week-day-name {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.week-day-num {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+}
+
+.week-day-num.today {
+  background: var(--accent);
+  color: #fff;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  font-size: 0.75rem;
+}
+
+.week-cell-body {
+  flex: 1;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.week-cell-empty {
+  flex: 1;
+}
+
+.week-session-card {
+  background: #1e293b;
+  border-radius: 8px;
+  padding: 8px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  transition: background 0.15s, box-shadow 0.15s;
+  border: 1px solid transparent;
+}
+.week-session-card:hover {
+  background: #273548;
+}
+.week-session-card.active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.week-session-info {
+  font-size: 0.7rem;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-weight: 500;
+}
+
 /* Eleves Table */
 .table-container {
   overflow-x: auto;

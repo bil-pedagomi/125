@@ -4,14 +4,43 @@ import { formatDateShort, formatDate, getMonthKey, getMonthLabel, getSessionType
 import FicheEleve from '../components/FicheEleve';
 import Avatar from '../components/Avatar';
 import PhoneLink from '../components/PhoneLink';
+import useIsMobile from '../hooks/useIsMobile';
 
 const PRICE = 199;
+const DAY_NAMES = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
+
+function getMonday(d) {
+  const date = new Date(d);
+  const day = date.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  date.setDate(date.getDate() + diff);
+  date.setHours(0, 0, 0, 0);
+  return date;
+}
+
+function formatWeekLabel(monday) {
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+  const mNames = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
+  const d1 = monday.getDate();
+  const d2 = sunday.getDate();
+  if (monday.getMonth() === sunday.getMonth()) {
+    return `Semaine du ${d1} au ${d2} ${mNames[monday.getMonth()]} ${monday.getFullYear()}`;
+  }
+  return `Semaine du ${d1} ${mNames[monday.getMonth()]} au ${d2} ${mNames[sunday.getMonth()]} ${sunday.getFullYear()}`;
+}
+
+function toDateKey(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
 
 function Agenda({ data }) {
   const { sessions, raw } = data;
   const caComparaison = raw?.ca_comparaison || [];
+  const isMobile = useIsMobile();
   const now = new Date();
   const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const [weekStart, setWeekStart] = useState(() => getMonday(now));
   const [monthFilter, setMonthFilter] = useState(currentMonth);
   const [typeFilter, setTypeFilter] = useState('all');
   const [expandedId, setExpandedId] = useState(null);
@@ -27,16 +56,14 @@ function Agenda({ data }) {
 
   const goMonth = (direction) => {
     const idx = months.indexOf(monthFilter);
-    if (direction === -1 && idx > 0) {
-      setMonthFilter(months[idx - 1]);
-    } else if (direction === 1 && idx < months.length - 1) {
-      setMonthFilter(months[idx + 1]);
-    }
+    if (direction === -1 && idx > 0) setMonthFilter(months[idx - 1]);
+    else if (direction === 1 && idx < months.length - 1) setMonthFilter(months[idx + 1]);
   };
 
   const canGoPrev = months.indexOf(monthFilter) > 0;
   const canGoNext = months.indexOf(monthFilter) < months.length - 1 && months.indexOf(monthFilter) !== -1;
 
+  // Sessions filtered by month + type (for KPIs and mobile list)
   const filtered = useMemo(() => {
     return sessions.filter(s => {
       if (monthFilter !== 'all') {
@@ -51,6 +78,46 @@ function Agenda({ data }) {
     });
   }, [sessions, monthFilter, typeFilter]);
 
+  // Sessions indexed by date key for calendar view
+  const sessionsByDate = useMemo(() => {
+    const map = {};
+    sessions.forEach(s => {
+      if (typeFilter !== 'all' && getSessionType(s) !== typeFilter) return;
+      const d = new Date(s.start_time);
+      const key = toDateKey(d);
+      if (!map[key]) map[key] = [];
+      map[key].push(s);
+    });
+    return map;
+  }, [sessions, typeFilter]);
+
+  // Week days array
+  const weekDays = useMemo(() => {
+    const days = [];
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(weekStart);
+      d.setDate(weekStart.getDate() + i);
+      days.push(d);
+    }
+    return days;
+  }, [weekStart]);
+
+  const goWeek = (dir) => {
+    setWeekStart(prev => {
+      const next = new Date(prev);
+      next.setDate(prev.getDate() + dir * 7);
+      return next;
+    });
+    setExpandedId(null);
+  };
+
+  const goToday = () => {
+    setWeekStart(getMonday(new Date()));
+    setExpandedId(null);
+  };
+
+  const todayKey = toDateKey(now);
+
   // KPIs from filtered sessions
   const kpis = useMemo(() => {
     const allInvitees = filtered.flatMap(s => s.invitees || []);
@@ -63,7 +130,6 @@ function Agenda({ data }) {
     const withForm = allInvitees.filter(i => i.form_rempli);
     const nbDejaConduit = withForm.filter(i => i.deja_conduit).length;
     const pctDejaConduit = withForm.length > 0 ? Math.round((nbDejaConduit / withForm.length) * 100) : 0;
-    // Niveaux
     const niveaux = { 'Débutant': 0, 'Intermédiaire': 0, 'Avancé': 0, 'Expert': 0 };
     withForm.forEach(i => {
       const n = i.niveau_scooter;
@@ -78,7 +144,6 @@ function Agenda({ data }) {
   };
 
   const pctColor = (val, thresholds) => {
-    // thresholds: { green: condition, orange: condition } — else red
     if (thresholds.greenIf(val)) return 'var(--green)';
     if (thresholds.orangeIf(val)) return 'var(--orange)';
     return 'var(--red)';
@@ -86,16 +151,129 @@ function Agenda({ data }) {
 
   const NIVEAU_COLORS = { 'Débutant': '#F87171', 'Intermédiaire': '#FBBF24', 'Avancé': '#60A5FA', 'Expert': '#34D399' };
 
+  // Find expanded session for detail panel
+  const expandedSession = expandedId ? sessions.find(s => s.id === expandedId) : null;
+
+  const renderSessionDetail = (s) => {
+    const invitees = s.invitees || [];
+    const nbEleves = invitees.length || s.nb_invitees || 0;
+    const ca = nbEleves * PRICE;
+    const fallbackInvitees = invitees.length === 0 && s.invitee_name
+      ? [{ name: s.invitee_name, email: s.invitee_email, _fallback: true }]
+      : [];
+    const displayInvitees = invitees.length > 0 ? invitees : fallbackInvitees;
+    const nbFormRempli = invitees.filter(i => i.form_rempli).length;
+    const tauxForm = nbEleves > 0 ? Math.round((nbFormRempli / nbEleves) * 100) : 0;
+
+    return (
+      <div className="session-detail-panel" style={{ marginTop: 8, borderRadius: 10 }}>
+        <div className="session-detail-summary">
+          <div className="session-detail-stat">
+            <Users size={14} />
+            <span>{nbEleves} élève{nbEleves > 1 ? 's' : ''}</span>
+          </div>
+          <div className="session-detail-stat">
+            <Euro size={14} />
+            <span>{ca.toLocaleString('fr-FR')} €</span>
+          </div>
+          <div className="session-detail-stat">
+            <FileCheck size={14} />
+            <span>Formulaires : {tauxForm}% ({nbFormRempli}/{nbEleves})</span>
+          </div>
+        </div>
+
+        {displayInvitees.length > 0 ? (
+          <div className="session-detail-list">
+            {displayInvitees.map((inv, i) => {
+              const isFallback = inv._fallback;
+              return (
+                <div key={i} className="session-detail-invitee-wrapper">
+                  <div className="session-detail-invitee">
+                    <Avatar name={inv.name} photoUrl={inv.photo_identite} size={40} />
+                    <div className="invitee-info">
+                      <span className="invitee-name">{inv.name || '—'}</span>
+                      <span className="invitee-email">{inv.email || '—'}</span>
+                      {inv.phone && <PhoneLink phone={inv.phone} />}
+                      {inv.payment_amount && (
+                        <span className="invitee-payment">
+                          {inv.payment_amount} {inv.payment_currency || '€'}
+                        </span>
+                      )}
+                    </div>
+                    <div className="invitee-badges">
+                      {isFallback ? (
+                        <span className="invitee-badge grey">Données partielles</span>
+                      ) : (
+                        <>
+                          {inv.form_rempli
+                            ? <span className="invitee-badge green">Formulaire OK</span>
+                            : <span className="invitee-badge orange">Formulaire manquant</span>
+                          }
+                          {inv.a_appele
+                            ? <span className="invitee-badge red">{inv.nb_appels} appel{inv.nb_appels > 1 ? 's' : ''}</span>
+                            : <span className="invitee-badge green">0 appel</span>
+                          }
+                          {inv.status === 'canceled' && (
+                            <span className="invitee-badge red">Annulé</span>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  </div>
+                  {!isFallback && <FicheEleve invitee={inv} />}
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <p className="empty-state" style={{ padding: '0.75rem 0' }}>
+            Aucun élève inscrit (backfill en cours)
+          </p>
+        )}
+      </div>
+    );
+  };
+
+  // Mobile list view for a session row
+  const renderMobileSession = (s) => {
+    const type = getSessionType(s);
+    const invitees = s.invitees || [];
+    const nbEleves = invitees.length || s.nb_invitees || 0;
+    const ca = nbEleves * PRICE;
+    const isExpanded = expandedId === s.id;
+
+    return (
+      <div key={s.id}>
+        <div className="session-row-mobile" style={{ display: 'flex' }} onClick={() => toggleExpand(s.id)}>
+          <div className="srm-line1">
+            <span className="session-date">{formatDateShort(s.start_time)}</span>
+            <span className={`badge ${type}`}>{type === 'we' ? 'WE' : 'SEM'}</span>
+            <span style={{ marginLeft: 'auto' }}>
+              {isExpanded
+                ? <ChevronUp size={14} style={{ color: 'var(--text-muted)' }} />
+                : <ChevronDown size={14} style={{ color: 'var(--text-muted)' }} />
+              }
+            </span>
+          </div>
+          <div className="srm-line2">
+            <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {s.event_type_name || 'Formation 125'}
+            </span>
+            <span className="session-eleves" style={{ fontSize: '0.75rem' }}>{nbEleves} él.</span>
+            <span className="session-ca" style={{ fontSize: '0.75rem' }}>{ca.toLocaleString('fr-FR')} €</span>
+          </div>
+        </div>
+        {isExpanded && renderSessionDetail(s)}
+      </div>
+    );
+  };
+
   return (
     <div>
+      {/* Filters bar — month + type */}
       <div className="filters-bar">
         <CalendarDays size={16} style={{ color: 'var(--accent)' }} />
-        <button
-          className="month-nav-btn"
-          onClick={() => goMonth(-1)}
-          disabled={!canGoPrev}
-          aria-label="Mois précédent"
-        >
+        <button className="month-nav-btn" onClick={() => goMonth(-1)} disabled={!canGoPrev} aria-label="Mois précédent">
           <ChevronLeft size={16} />
         </button>
         <select className="filter-select" value={monthFilter} onChange={e => setMonthFilter(e.target.value)}>
@@ -104,12 +282,7 @@ function Agenda({ data }) {
             <option key={m} value={m}>{getMonthLabel(m)}</option>
           ))}
         </select>
-        <button
-          className="month-nav-btn"
-          onClick={() => goMonth(1)}
-          disabled={!canGoNext}
-          aria-label="Mois suivant"
-        >
+        <button className="month-nav-btn" onClick={() => goMonth(1)} disabled={!canGoNext} aria-label="Mois suivant">
           <ChevronRight size={16} />
         </button>
         <select className="filter-select" value={typeFilter} onChange={e => setTypeFilter(e.target.value)}>
@@ -122,6 +295,7 @@ function Agenda({ data }) {
         </span>
       </div>
 
+      {/* KPIs */}
       <div className="kpi-grid" style={{ marginBottom: '1rem' }}>
         <div className="kpi-card green">
           <span className="kpi-label"><Euro size={12} style={{ display: 'inline', marginRight: 4 }} />CA du mois</span>
@@ -208,144 +382,85 @@ function Agenda({ data }) {
         </div>
       </div>
 
-      <div className="session-list">
-        {filtered.map((s) => {
-          const type = getSessionType(s);
-          const invitees = s.invitees || [];
-          const nbEleves = invitees.length || s.nb_invitees || 0;
-          const ca = nbEleves * PRICE;
-          const isExpanded = expandedId === s.id;
+      {/* DESKTOP: Weekly calendar view */}
+      {!isMobile && (
+        <>
+          {/* Week navigation */}
+          <div className="week-nav">
+            <button className="month-nav-btn" onClick={() => goWeek(-1)} aria-label="Semaine précédente">
+              <ChevronLeft size={16} />
+            </button>
+            <span className="week-label">{formatWeekLabel(weekStart)}</span>
+            <button className="month-nav-btn" onClick={() => goWeek(1)} aria-label="Semaine suivante">
+              <ChevronRight size={16} />
+            </button>
+            <button className="week-today-btn" onClick={goToday}>Aujourd'hui</button>
+          </div>
 
-          // Fallback: if no invitees in array but session has invitee_name/invitee_email
-          const fallbackInvitees = invitees.length === 0 && s.invitee_name
-            ? [{ name: s.invitee_name, email: s.invitee_email, _fallback: true }]
-            : [];
-          const displayInvitees = invitees.length > 0 ? invitees : fallbackInvitees;
+          {/* Calendar grid */}
+          <div className="week-grid">
+            {weekDays.map((day, i) => {
+              const key = toDateKey(day);
+              const daySessions = sessionsByDate[key] || [];
+              const isToday = key === todayKey;
+              const isWeekend = i >= 5;
 
-          const nbFormRempli = invitees.filter(i => i.form_rempli).length;
-          const tauxForm = nbEleves > 0 ? Math.round((nbFormRempli / nbEleves) * 100) : 0;
-
-          return (
-            <div key={s.id}>
-              {/* Desktop session row */}
-              <div
-                className="session-row"
-                style={{ cursor: 'pointer' }}
-                onClick={() => toggleExpand(s.id)}
-              >
-                <span className="session-date">{formatDateShort(s.start_time)}</span>
-                <span className="session-type">
-                  <span className={`badge ${type}`}>{type === 'we' ? 'WE' : 'SEM'}</span>
-                </span>
-                <span style={{ color: 'var(--text-secondary)', fontSize: '0.8125rem' }}>
-                  {s.event_type_name || 'Formation 125'}
-                </span>
-                <span className="session-eleves">{nbEleves} élève{nbEleves > 1 ? 's' : ''}</span>
-                <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  <span className="session-ca">{ca.toLocaleString('fr-FR')} €</span>
-                  {isExpanded
-                    ? <ChevronUp size={14} style={{ color: 'var(--text-muted)' }} />
-                    : <ChevronDown size={14} style={{ color: 'var(--text-muted)' }} />
-                  }
-                </span>
-              </div>
-              {/* Mobile session row */}
-              <div className="session-row-mobile" onClick={() => toggleExpand(s.id)}>
-                <div className="srm-line1">
-                  <span className="session-date">{formatDateShort(s.start_time)}</span>
-                  <span className={`badge ${type}`}>{type === 'we' ? 'WE' : 'SEM'}</span>
-                  <span style={{ marginLeft: 'auto' }}>
-                    {isExpanded
-                      ? <ChevronUp size={14} style={{ color: 'var(--text-muted)' }} />
-                      : <ChevronDown size={14} style={{ color: 'var(--text-muted)' }} />
-                    }
-                  </span>
-                </div>
-                <div className="srm-line2">
-                  <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {s.event_type_name || 'Formation 125'}
-                  </span>
-                  <span className="session-eleves" style={{ fontSize: '0.75rem' }}>{nbEleves} él.</span>
-                  <span className="session-ca" style={{ fontSize: '0.75rem' }}>{ca.toLocaleString('fr-FR')} €</span>
-                </div>
-              </div>
-
-              {isExpanded && (
-                <div className="session-detail-panel">
-                  <div className="session-detail-summary">
-                    <div className="session-detail-stat">
-                      <Users size={14} />
-                      <span>{nbEleves} élève{nbEleves > 1 ? 's' : ''}</span>
-                    </div>
-                    <div className="session-detail-stat">
-                      <Euro size={14} />
-                      <span>{ca.toLocaleString('fr-FR')} €</span>
-                    </div>
-                    <div className="session-detail-stat">
-                      <FileCheck size={14} />
-                      <span>Formulaires : {tauxForm}% ({nbFormRempli}/{nbEleves})</span>
-                    </div>
+              return (
+                <div
+                  key={key}
+                  className={`week-cell${isToday ? ' week-cell-today' : ''}${isWeekend ? ' week-cell-weekend' : ''}`}
+                >
+                  <div className="week-cell-header">
+                    <span className="week-day-name">{DAY_NAMES[i]}</span>
+                    <span className={`week-day-num${isToday ? ' today' : ''}`}>{day.getDate()}</span>
                   </div>
-
-                  {displayInvitees.length > 0 ? (
-                    <div className="session-detail-list">
-                      {displayInvitees.map((inv, i) => {
-                        const isFallback = inv._fallback;
-                        return (
-                          <div key={i} className="session-detail-invitee-wrapper">
-                            <div className="session-detail-invitee">
-                              <Avatar name={inv.name} photoUrl={inv.photo_identite} size={40} />
-                              <div className="invitee-info">
-                                <span className="invitee-name">{inv.name || '—'}</span>
-                                <span className="invitee-email">{inv.email || '—'}</span>
-                                {inv.phone && <PhoneLink phone={inv.phone} />}
-                                {inv.payment_amount && (
-                                  <span className="invitee-payment">
-                                    {inv.payment_amount} {inv.payment_currency || '€'}
-                                  </span>
-                                )}
-                              </div>
-                              <div className="invitee-badges">
-                                {isFallback ? (
-                                  <span className="invitee-badge grey">Données partielles</span>
-                                ) : (
-                                  <>
-                                    {inv.form_rempli
-                                      ? <span className="invitee-badge green">Formulaire OK</span>
-                                      : <span className="invitee-badge orange">Formulaire manquant</span>
-                                    }
-                                    {inv.a_appele
-                                      ? <span className="invitee-badge red">{inv.nb_appels} appel{inv.nb_appels > 1 ? 's' : ''}</span>
-                                      : <span className="invitee-badge green">0 appel</span>
-                                    }
-                                    {inv.status === 'canceled' && (
-                                      <span className="invitee-badge red">Annulé</span>
-                                    )}
-                                  </>
-                                )}
-                              </div>
-                            </div>
-                            {!isFallback && <FicheEleve invitee={inv} />}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <p className="empty-state" style={{ padding: '0.75rem 0' }}>
-                      Aucun élève inscrit (backfill en cours)
-                    </p>
-                  )}
+                  <div className="week-cell-body">
+                    {daySessions.length === 0 && (
+                      <div className="week-cell-empty" />
+                    )}
+                    {daySessions.map(s => {
+                      const type = getSessionType(s);
+                      const invitees = s.invitees || [];
+                      const nbEleves = invitees.length || s.nb_invitees || 0;
+                      const ca = nbEleves * PRICE;
+                      const isActive = expandedId === s.id;
+                      return (
+                        <div
+                          key={s.id}
+                          className={`week-session-card${isActive ? ' active' : ''}`}
+                          onClick={() => toggleExpand(s.id)}
+                        >
+                          <span className={`badge ${type}`} style={{ fontSize: '0.6rem' }}>
+                            {type === 'we' ? 'WE' : 'SEM'}
+                          </span>
+                          <span className="week-session-info">
+                            {nbEleves} élève{nbEleves > 1 ? 's' : ''} · {ca.toLocaleString('fr-FR')}€
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
-              )}
-            </div>
-          );
-        })}
-        {filtered.length === 0 && (
-          <p className="empty-state" style={{ padding: '2rem', textAlign: 'center' }}>
-            Aucune session trouvée
-          </p>
-        )}
-      </div>
+              );
+            })}
+          </div>
+
+          {/* Expanded detail panel below calendar */}
+          {expandedSession && renderSessionDetail(expandedSession)}
+        </>
+      )}
+
+      {/* MOBILE: List view (like before) */}
+      {isMobile && (
+        <div className="session-list">
+          {filtered.map(s => renderMobileSession(s))}
+          {filtered.length === 0 && (
+            <p className="empty-state" style={{ padding: '2rem', textAlign: 'center' }}>
+              Aucune session trouvée
+            </p>
+          )}
+        </div>
+      )}
     </div>
   );
 }
