@@ -1,4 +1,4 @@
-const API_URL = `https://yuolnqyejxtfpxntflle.supabase.co/functions/v1/dashboard-125?key=${import.meta.env.VITE_API_KEY}`;
+const API_URL = 'https://yuolnqyejxtfpxntflle.supabase.co/functions/v1/dashboard-125?key=eb498a94-3602-46a4-bce7-df288002402d';
 
 export async function fetchDashboardData() {
   const res = await fetch(API_URL);
