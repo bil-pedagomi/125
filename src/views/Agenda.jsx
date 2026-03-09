@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { CalendarDays, ChevronDown, ChevronUp, FileCheck, PhoneCall, Users, Euro } from 'lucide-react';
+import { CalendarDays, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, FileCheck, PhoneCall, Users, Euro } from 'lucide-react';
 import { formatDateShort, formatDate, getMonthKey, getMonthLabel, getSessionType } from '../utils';
 import FicheEleve from '../components/FicheEleve';
 
@@ -21,6 +21,18 @@ function Agenda({ data }) {
     });
     return [...set].sort();
   }, [sessions]);
+
+  const goMonth = (direction) => {
+    const idx = months.indexOf(monthFilter);
+    if (direction === -1 && idx > 0) {
+      setMonthFilter(months[idx - 1]);
+    } else if (direction === 1 && idx < months.length - 1) {
+      setMonthFilter(months[idx + 1]);
+    }
+  };
+
+  const canGoPrev = months.indexOf(monthFilter) > 0;
+  const canGoNext = months.indexOf(monthFilter) < months.length - 1 && months.indexOf(monthFilter) !== -1;
 
   const filtered = useMemo(() => {
     return sessions.filter(s => {
@@ -44,12 +56,28 @@ function Agenda({ data }) {
     <div>
       <div className="filters-bar">
         <CalendarDays size={16} style={{ color: 'var(--accent)' }} />
+        <button
+          className="month-nav-btn"
+          onClick={() => goMonth(-1)}
+          disabled={!canGoPrev}
+          aria-label="Mois précédent"
+        >
+          <ChevronLeft size={16} />
+        </button>
         <select className="filter-select" value={monthFilter} onChange={e => setMonthFilter(e.target.value)}>
           <option value="all">Tous les mois</option>
           {months.map(m => (
             <option key={m} value={m}>{getMonthLabel(m)}</option>
           ))}
         </select>
+        <button
+          className="month-nav-btn"
+          onClick={() => goMonth(1)}
+          disabled={!canGoNext}
+          aria-label="Mois suivant"
+        >
+          <ChevronRight size={16} />
+        </button>
         <select className="filter-select" value={typeFilter} onChange={e => setTypeFilter(e.target.value)}>
           <option value="all">Tous les types</option>
           <option value="we">Weekend</option>
