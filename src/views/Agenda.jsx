@@ -8,7 +8,8 @@ import PhoneLink from '../components/PhoneLink';
 const PRICE = 199;
 
 function Agenda({ data }) {
-  const { sessions } = data;
+  const { sessions, raw } = data;
+  const caComparaison = raw?.ca_comparaison || [];
   const now = new Date();
   const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   const [monthFilter, setMonthFilter] = useState(currentMonth);
@@ -126,6 +127,31 @@ function Agenda({ data }) {
           <span className="kpi-label"><Euro size={12} style={{ display: 'inline', marginRight: 4 }} />CA du mois</span>
           <span className="kpi-value" style={{ color: 'var(--green)' }}>{kpis.ca.toLocaleString('fr-FR')} €</span>
           <span className="kpi-sub">@{PRICE}€/élève</span>
+          {(() => {
+            const comp = caComparaison.find(c => c.mois === monthFilter);
+            if (!comp) return <span style={{ color: '#64748b', fontSize: 11, marginTop: 4 }}>Pas de données N-1</span>;
+            const pct = comp.variation_pct;
+            if (pct == null) return <span style={{ color: '#64748b', fontSize: 11, marginTop: 4 }}>Pas de données N-1</span>;
+            const positive = pct >= 0;
+            const arrow = positive ? '↑' : '↓';
+            const color = positive ? '#10b981' : '#ef4444';
+            const [, mm] = monthFilter.split('-');
+            const monthNames = ['jan', 'fév', 'mar', 'avr', 'mai', 'juin', 'juil', 'août', 'sep', 'oct', 'nov', 'déc'];
+            const monthLabel = monthNames[parseInt(mm) - 1];
+            const yearN1 = parseInt(monthFilter.split('-')[0]) - 1;
+            return (
+              <div style={{ marginTop: 4 }}>
+                <span style={{ color, fontSize: 14, fontWeight: 600 }}>
+                  {arrow} {positive ? '+' : ''}{pct}% vs {monthLabel} {yearN1}
+                </span>
+                {comp.ca_n1 != null && (
+                  <div style={{ color: '#64748b', fontSize: 11 }}>
+                    ({comp.ca_n1.toLocaleString('fr-FR')}€ en {yearN1})
+                  </div>
+                )}
+              </div>
+            );
+          })()}
         </div>
         <div className="kpi-card accent">
           <span className="kpi-label"><Users size={12} style={{ display: 'inline', marginRight: 4 }} />Élèves</span>
