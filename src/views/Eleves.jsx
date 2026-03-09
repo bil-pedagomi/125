@@ -21,6 +21,9 @@ const ELEVES_CSS = `
   border-bottom: 1px solid var(--border);
   transition: background 0.15s;
 }
+.eleve-row.expanded {
+  grid-template-columns: 80px 180px 1fr 100px 80px 200px 80px;
+}
 .eleve-row:hover { background: rgba(108,99,255,0.06); }
 .eleve-row .er-photo { flex-shrink: 0; overflow: visible; }
 .eleve-row .er-name { font-weight: 500; font-size: 13px; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -41,6 +44,9 @@ const ELEVES_CSS = `
 @media (max-width: 1023px) and (min-width: 768px) {
   .eleve-row {
     grid-template-columns: 40px 1fr 1fr 80px 80px;
+  }
+  .eleve-row.expanded {
+    grid-template-columns: 80px 1fr 1fr 80px 80px;
   }
   .eleve-row .er-niveau { display: none; }
   .eleve-row .er-date { display: none; }
@@ -315,10 +321,10 @@ function Eleves({ data }) {
           const isExpanded = expandedId === key;
           return (
             <div key={key}>
-              <div className="eleve-row" onClick={() => toggleExpand(key)}>
+              <div className={`eleve-row${isExpanded ? ' expanded' : ''}`} onClick={() => toggleExpand(key)}>
                 {/* Desktop cells */}
                 <span className="er-photo">
-                  <Avatar name={e.name} photoUrl={e.photo_identite} size={isExpanded ? 80 : 40} style={{ transition: 'width 0.3s ease, height 0.3s ease', flexShrink: 0 }} />
+                  <Avatar name={e.name} photoUrl={e.photo_identite} size={isExpanded ? 80 : 40} style={{ transition: 'all 0.3s ease', flexShrink: 0 }} />
                 </span>
                 <span className="er-name">{e.name || '—'}</span>
                 <span className="er-email">{e.email || '—'}</span>
