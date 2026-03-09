@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
 import { Search, X, User, Phone, Mail, FileText, Calendar } from 'lucide-react';
 import { formatDate, getMonthKey, getMonthLabel, getSessionType } from '../utils';
+import FicheEleve from '../components/FicheEleve';
 
 function Eleves({ data }) {
   const { eleves, sessions } = data;
@@ -228,25 +229,9 @@ function Eleves({ data }) {
               )}
             </div>
 
-            {selectedEleve.form_rempli && (
-              <div className="detail-section">
-                <h3><FileText size={14} /> Formulaire pré-formation</h3>
-                <div className="detail-grid">
-                  {selectedEleve.niveau_scooter && (
-                    <div className="detail-field">
-                      <div className="label">Niveau scooter</div>
-                      <div className="value">{selectedEleve.niveau_scooter}</div>
-                    </div>
-                  )}
-                  {selectedEleve.source_acquisition && (
-                    <div className="detail-field">
-                      <div className="label">Source</div>
-                      <div className="value">{selectedEleve.source_acquisition}</div>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
+            <div className="detail-section">
+              <FicheEleve invitee={selectedEleve} defaultOpen={true} />
+            </div>
           </div>
         </div>
       )}

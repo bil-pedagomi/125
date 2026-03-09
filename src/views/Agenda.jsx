@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
 import { CalendarDays, ChevronDown, ChevronUp, FileCheck, PhoneCall, Users, Euro } from 'lucide-react';
 import { formatDateShort, formatDate, getMonthKey, getMonthLabel, getSessionType } from '../utils';
+import FicheEleve from '../components/FicheEleve';
 
 const PRICE = 199;
 
@@ -119,36 +120,39 @@ function Agenda({ data }) {
                       {displayInvitees.map((inv, i) => {
                         const isFallback = inv._fallback;
                         return (
-                          <div key={i} className="session-detail-invitee">
-                            <div className="invitee-info">
-                              <span className="invitee-name">{inv.name || '—'}</span>
-                              <span className="invitee-email">{inv.email || '—'}</span>
-                              {inv.phone && <span className="invitee-phone">{inv.phone}</span>}
-                              {inv.payment_amount && (
-                                <span className="invitee-payment">
-                                  {inv.payment_amount} {inv.payment_currency || '€'}
-                                </span>
-                              )}
+                          <div key={i} className="session-detail-invitee-wrapper">
+                            <div className="session-detail-invitee">
+                              <div className="invitee-info">
+                                <span className="invitee-name">{inv.name || '—'}</span>
+                                <span className="invitee-email">{inv.email || '—'}</span>
+                                {inv.phone && <span className="invitee-phone">{inv.phone}</span>}
+                                {inv.payment_amount && (
+                                  <span className="invitee-payment">
+                                    {inv.payment_amount} {inv.payment_currency || '€'}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="invitee-badges">
+                                {isFallback ? (
+                                  <span className="invitee-badge grey">Données partielles</span>
+                                ) : (
+                                  <>
+                                    {inv.form_rempli
+                                      ? <span className="invitee-badge green">Formulaire OK</span>
+                                      : <span className="invitee-badge orange">Formulaire manquant</span>
+                                    }
+                                    {inv.a_appele
+                                      ? <span className="invitee-badge red">{inv.nb_appels} appel{inv.nb_appels > 1 ? 's' : ''}</span>
+                                      : <span className="invitee-badge green">0 appel</span>
+                                    }
+                                    {inv.status === 'canceled' && (
+                                      <span className="invitee-badge red">Annulé</span>
+                                    )}
+                                  </>
+                                )}
+                              </div>
                             </div>
-                            <div className="invitee-badges">
-                              {isFallback ? (
-                                <span className="invitee-badge grey">Données partielles</span>
-                              ) : (
-                                <>
-                                  {inv.form_rempli
-                                    ? <span className="invitee-badge green">Formulaire OK</span>
-                                    : <span className="invitee-badge orange">Formulaire manquant</span>
-                                  }
-                                  {inv.a_appele
-                                    ? <span className="invitee-badge red">{inv.nb_appels} appel{inv.nb_appels > 1 ? 's' : ''}</span>
-                                    : <span className="invitee-badge green">0 appel</span>
-                                  }
-                                  {inv.status === 'canceled' && (
-                                    <span className="invitee-badge red">Annulé</span>
-                                  )}
-                                </>
-                              )}
-                            </div>
+                            {!isFallback && <FicheEleve invitee={inv} />}
                           </div>
                         );
                       })}

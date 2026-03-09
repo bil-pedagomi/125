@@ -689,6 +689,169 @@
   color: var(--text-muted);
 }
 
+/* Fiche Eleve */
+.fiche-eleve-wrapper {
+  margin-top: 0.375rem;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.session-detail-invitee-wrapper {
+  background: var(--bg-card);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.session-detail-invitee-wrapper .session-detail-invitee {
+  border-radius: 0;
+}
+
+.session-detail-invitee-wrapper .fiche-eleve-wrapper {
+  margin-top: 0;
+  border-top: 1px solid var(--border);
+}
+
+.fiche-eleve-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0.75rem;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  transition: background 0.1s;
+}
+
+.fiche-eleve-header:hover {
+  background: var(--bg-hover);
+}
+
+.fiche-eleve-title {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.fiche-eleve-alert {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.625rem 0.75rem;
+  background: var(--orange-bg);
+  color: var(--orange);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  border-radius: 0 0 8px 8px;
+}
+
+.fiche-eleve-body {
+  padding: 0.625rem 0.75rem 0.75rem;
+}
+
+.fiche-eleve-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.375rem;
+}
+
+.fiche-eleve-field {
+  background: var(--bg-hover);
+  border-radius: 6px;
+  padding: 0.5rem 0.625rem;
+}
+
+.fiche-eleve-field .label {
+  font-size: 0.65rem;
+  color: var(--text-muted);
+  margin-bottom: 0.125rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.fiche-eleve-field .value {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.fiche-niveau-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 8px;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.fiche-eleve-commentaires {
+  margin-top: 0.5rem;
+  background: var(--bg-hover);
+  border-radius: 6px;
+  padding: 0.5rem 0.625rem;
+}
+
+.fiche-eleve-commentaires .label {
+  font-size: 0.65rem;
+  color: var(--text-muted);
+  margin-bottom: 0.125rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.fiche-eleve-commentaires .value {
+  font-size: 0.8125rem;
+  color: var(--text-primary);
+  line-height: 1.4;
+}
+
+.fiche-eleve-docs {
+  margin-top: 0.5rem;
+}
+
+.fiche-eleve-docs .label {
+  font-size: 0.65rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.fiche-docs-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+}
+
+.doc-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: 6px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.doc-badge:hover {
+  opacity: 0.8;
+}
+
+.doc-badge-ok {
+  background: var(--green-bg);
+  color: var(--green);
+}
+
+.doc-badge-missing {
+  background: rgba(107, 113, 148, 0.15);
+  color: var(--text-muted);
+  cursor: default;
+}
+
 /* Responsive */
 @media (max-width: 1200px) {
   .kpi-grid {
