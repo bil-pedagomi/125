@@ -254,29 +254,28 @@ function Eleves({ data }) {
     return sessionByEventId[eleve.calendly_event_id] || null;
   };
 
-  const filtered = useMemo(() => {
-    return (eleves || []).filter(e => {
-      if (search) {
-        const q = search.toLowerCase().trim();
-        const haystack = [e.name, e.email, e.phone, e.neph].filter(Boolean).join(' ').toLowerCase();
-        const words = q.split(/\s+/);
-        if (!words.every(w => haystack.includes(w))) return false;
+  // Compute filtered list — NO useMemo to avoid stale closure bugs
+  const filtered = (eleves || []).filter(e => {
+    if (search) {
+      const q = search.toLowerCase().trim();
+      const haystack = [e.name, e.email, e.phone, e.neph].filter(Boolean).join(' ').toLowerCase();
+      const words = q.split(/\s+/);
+      if (!words.every(w => haystack.includes(w))) return false;
+    }
+    if (monthFilter !== 'all' || typeFilter !== 'all') {
+      const session = sessionByEventId[e.calendly_event_id] || null;
+      if (monthFilter !== 'all') {
+        const mk = getMonthKey(session?.start_time);
+        if (mk !== monthFilter) return false;
       }
-      if (monthFilter !== 'all' || typeFilter !== 'all') {
-        const session = getEleveSession(e);
-        if (monthFilter !== 'all') {
-          const mk = getMonthKey(session?.start_time);
-          if (mk !== monthFilter) return false;
-        }
-        if (typeFilter !== 'all') {
-          if (!session) return false;
-          const type = getSessionType(session);
-          if (type !== typeFilter) return false;
-        }
+      if (typeFilter !== 'all') {
+        if (!session) return false;
+        const type = getSessionType(session);
+        if (type !== typeFilter) return false;
       }
-      return true;
-    });
-  }, [eleves, search, monthFilter, typeFilter, sessionByEventId]);
+    }
+    return true;
+  });
 
   const toggleExpand = (eleveEmail) => {
     setExpandedId(expandedId === eleveEmail ? null : eleveEmail);
