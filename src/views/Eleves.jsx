@@ -101,7 +101,7 @@ function EleveExpandedPanel({ eleve }) {
     { label: 'Niveau', value: eleve.niveau_scooter, badge: true },
     { label: 'Déjà conduit', value: eleve.deja_conduit ? 'Oui' : 'Non', color: eleve.deja_conduit ? '#10b981' : '#ef4444' },
     eleve.occasions_conduite && { label: 'Occasions', value: eleve.occasions_conduite },
-    eleve.derniere_conduite && { label: 'Dernière conduite', value: eleve.derniere_conduite },
+    eleve.derniere_conduite && { label: 'Dernière conduite', value: formatDate(eleve.derniere_conduite) },
     { label: 'Source', value: eleve.source_acquisition || '—' },
     eleve.raison_reservation && { label: 'Raison', value: eleve.raison_reservation },
     eleve.commentaires && { label: 'Commentaires', value: eleve.commentaires },
@@ -129,7 +129,7 @@ function EleveExpandedPanel({ eleve }) {
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid #1e293b' }}>
             <span style={{ fontSize: 12, color: '#64748b' }}>Permis B obtenu le</span>
-            <span style={{ fontSize: 12, color: '#e2e8f0' }}>{eleve.date_obtention_permis_b || <span style={{ color: '#64748b', fontStyle: 'italic' }}>Non renseigné</span>}</span>
+            <span style={{ fontSize: 12, color: '#e2e8f0' }}>{eleve.date_obtention_permis_b ? formatDate(eleve.date_obtention_permis_b) : <span style={{ color: '#64748b', fontStyle: 'italic' }}>Non renseigné</span>}</span>
           </div>
           {eleve.phone && (
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid #1e293b' }}>

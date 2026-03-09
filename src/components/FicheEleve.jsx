@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { ChevronDown, ChevronUp, FileText, ExternalLink, AlertTriangle } from 'lucide-react';
 import Avatar from './Avatar';
+import { formatDate } from '../utils';
 
 const NIVEAU_COLORS = {
   'Débutant': { bg: 'var(--red-bg)', color: 'var(--red)' },
@@ -75,7 +76,7 @@ export default function FicheEleve({ invitee, defaultOpen = false }) {
             </div>
             <div className="fiche-eleve-field">
               <div className="label">Permis B obtenu le</div>
-              <div className="value">{invitee.date_obtention_permis_b || 'Non renseigné'}</div>
+              <div className="value">{invitee.date_obtention_permis_b ? formatDate(invitee.date_obtention_permis_b) : 'Non renseigné'}</div>
             </div>
             <div className="fiche-eleve-field">
               <div className="label">Niveau scooter</div>
@@ -112,7 +113,7 @@ export default function FicheEleve({ invitee, defaultOpen = false }) {
             {invitee.derniere_conduite && (
               <div className="fiche-eleve-field">
                 <div className="label">Dernière conduite</div>
-                <div className="value">{invitee.derniere_conduite}</div>
+                <div className="value">{formatDate(invitee.derniere_conduite)}</div>
               </div>
             )}
             {invitee.creneau_prefere && (
