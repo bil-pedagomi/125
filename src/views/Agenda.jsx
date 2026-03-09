@@ -70,7 +70,7 @@ function Agenda({ data }) {
             : [];
           const displayInvitees = invitees.length > 0 ? invitees : fallbackInvitees;
 
-          const nbFormRempli = invitees.filter(i => i.formulaireRempli).length;
+          const nbFormRempli = invitees.filter(i => i.form_rempli).length;
           const tauxForm = nbEleves > 0 ? Math.round((nbFormRempli / nbEleves) * 100) : 0;
 
           return (
@@ -135,12 +135,12 @@ function Agenda({ data }) {
                                 <span className="invitee-badge grey">Données partielles</span>
                               ) : (
                                 <>
-                                  {inv.formulaireRempli
+                                  {inv.form_rempli
                                     ? <span className="invitee-badge green">Formulaire OK</span>
                                     : <span className="invitee-badge orange">Formulaire manquant</span>
                                   }
-                                  {inv.aAppele
-                                    ? <span className="invitee-badge red">{inv.nbAppels} appel{inv.nbAppels > 1 ? 's' : ''}</span>
+                                  {inv.a_appele
+                                    ? <span className="invitee-badge red">{inv.nb_appels} appel{inv.nb_appels > 1 ? 's' : ''}</span>
                                     : <span className="invitee-badge green">0 appel</span>
                                   }
                                   {inv.status === 'canceled' && (

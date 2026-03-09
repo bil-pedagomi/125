@@ -57,94 +57,17 @@ export function getSessionType(session) {
   return 'we';
 }
 
-const PRICE = 199;
-
 export function consolidateData(raw) {
-  const { sessions = [], invitees = [], formulaires = [], appels = [], resumes_appels = [], emails = [], kpis = {} } = raw;
+  const { sessions = [], invitees = [], formulaires = [], resumes_appels = [], kpis = {} } = raw;
 
-  // --- Index formulaires by email (column: "Votre email") ---
-  const formByEmail = new Map();
-  formulaires.forEach(f => {
-    const email = (f["Votre email"] || "").toLowerCase().trim();
-    if (email && email !== "an_account@example.com") {
-      formByEmail.set(email, f);
-    }
-  });
+  // --- Invitees arrive pre-enriched from API with: form_rempli, niveau_scooter, source_acquisition, a_appele, nb_appels, resumes_appels ---
+  const enrichedInvitees = invitees.map(inv => ({
+    ...inv,
+    emailNorm: normalizeEmail(inv.email),
+    phoneNorm: normalizePhone(inv.phone),
+  }));
 
-  // --- Index appels by email (v_125_appels: email, tel_norm, a_appele, nb_appels) ---
-  const appelsByEmail = {};
-  appels.forEach(a => {
-    const key = normalizeEmail(a.email);
-    if (!key) return;
-    if (!appelsByEmail[key]) appelsByEmail[key] = [];
-    appelsByEmail[key].push(a);
-  });
-
-  // --- Index resumes_appels by normalized phone (field: telephone) ---
-  const resumesByPhone = {};
-  resumes_appels.forEach(r => {
-    const key = normalizePhone(r.telephone);
-    if (!key) return;
-    if (!resumesByPhone[key]) resumesByPhone[key] = [];
-    resumesByPhone[key].push(r);
-  });
-
-  // --- Index emails by sender (field: email_expediteur) ---
-  const emailsByEmail = {};
-  emails.forEach(e => {
-    const key = normalizeEmail(e.email_expediteur);
-    if (!key) return;
-    if (!emailsByEmail[key]) emailsByEmail[key] = [];
-    emailsByEmail[key].push(e);
-  });
-
-  // --- Enrich invitees with cross-referenced data ---
-  const enrichedInvitees = invitees.map(inv => {
-    const email = normalizeEmail(inv.email);
-    const form = formByEmail.get(email) || null;
-    const appelsForInv = appelsByEmail[email] || [];
-    const aAppele = appelsForInv.some(a => a.a_appele);
-    const nbAppels = appelsForInv.reduce((sum, a) => sum + (a.nb_appels || 0), 0);
-    const phone = normalizePhone(inv.phone || (form && form.tel_norm));
-    const invResumes = phone ? (resumesByPhone[phone] || []) : [];
-    const invEmails = emailsByEmail[email] || [];
-
-    // Niveau scooter from formulaire or from invitee questions_and_answers
-    let niveauScooter = '—';
-    if (form) {
-      const val = form['Avez-vous déjà conduit un scooter ?'];
-      const val2 = form['Comment évalueriez-vous votre niveau de conduite de scooter ?'];
-      if (val !== null && val !== undefined && val !== '') niveauScooter = String(val);
-      else if (val2 !== null && val2 !== undefined && val2 !== '') niveauScooter = String(val2);
-    }
-    if (niveauScooter === '—' && inv.questions_and_answers) {
-      const niveauQ = inv.questions_and_answers.find(q =>
-        (q.question || '').toLowerCase().includes('niveau')
-      );
-      if (niveauQ) niveauScooter = niveauQ.answer;
-    }
-
-    // Source from formulaire
-    const source = form ? (form['Comment nous avez-vous trouvé ?'] || '—') : '—';
-
-    return {
-      ...inv,
-      emailNorm: email,
-      phoneNorm: phone,
-      formulaire: form,
-      formulaireRempli: !!form,
-      niveauScooter,
-      source,
-      appelsData: appelsForInv,
-      aAppele,
-      nbAppels,
-      resumesAppels: invResumes,
-      emails: invEmails,
-      nbEmails: invEmails.length,
-    };
-  });
-
-  // --- Build session map keyed by session id (int) ---
+  // --- Build session map keyed by session id ---
   const sessionMap = {};
   sessions.forEach(s => {
     sessionMap[s.id] = { ...s, invitees: [] };

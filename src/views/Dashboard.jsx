@@ -10,9 +10,9 @@ function Dashboard({ data }) {
 
   const totalEleves = eleves.length;
   const caEstime = totalEleves * PRICE;
-  const nbFormRempli = eleves.filter(e => e.formulaireRempli).length;
+  const nbFormRempli = eleves.filter(e => e.form_rempli).length;
   const pctForm = totalEleves > 0 ? Math.round((nbFormRempli / totalEleves) * 100) : 0;
-  const nbAppele = eleves.filter(e => e.aAppele).length;
+  const nbAppele = eleves.filter(e => e.a_appele).length;
   const tauxAppel = kpis.taux_appel ?? (totalEleves > 0 ? Math.round((nbAppele / totalEleves) * 100) : 0);
   const nbEmailRecus = eleves.filter(e => e.nbEmails > 0).length;
 
@@ -31,8 +31,8 @@ function Dashboard({ data }) {
       .map(([key, count]) => ({ month: getMonthLabel(key), eleves: count }));
   }, [sessions]);
 
-  const formNonRemplis = eleves.filter(e => !e.formulaireRempli && e.status !== 'canceled');
-  const ontAppele = eleves.filter(e => e.aAppele);
+  const formNonRemplis = eleves.filter(e => !e.form_rempli && e.status !== 'canceled');
+  const ontAppele = eleves.filter(e => e.a_appele);
 
   return (
     <div>
@@ -124,7 +124,7 @@ function Dashboard({ data }) {
                 <div className="action-icon red"><PhoneCall size={16} /></div>
                 <div>
                   <div className="action-name">{e.name || e.email}</div>
-                  <div className="action-detail">{e.nbAppels} appel{e.nbAppels > 1 ? 's' : ''} Ringover</div>
+                  <div className="action-detail">{e.nb_appels} appel{e.nb_appels > 1 ? 's' : ''} Ringover</div>
                 </div>
               </div>
             ))}

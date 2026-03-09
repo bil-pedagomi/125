@@ -106,9 +106,9 @@ function Eleves({ data }) {
                   <td style={{ fontWeight: 500 }}>{e.name || '—'}</td>
                   <td className="mono">{e.email || '—'}</td>
                   <td className="mono">{formatDate(session?.start_time)}</td>
-                  <td>{e.formulaireRempli ? <span className="status-yes">Oui</span> : <span className="status-no">Non</span>}</td>
-                  <td>{e.niveauScooter}</td>
-                  <td className="mono" style={{ color: e.aAppele ? 'var(--red)' : 'var(--text-muted)' }}>{e.nbAppels}</td>
+                  <td>{e.form_rempli ? <span className="status-yes">Oui</span> : <span className="status-no">Non</span>}</td>
+                  <td>{e.niveau_scooter || '—'}</td>
+                  <td className="mono" style={{ color: e.a_appele ? 'var(--red)' : 'var(--text-muted)' }}>{e.nb_appels || 0}</td>
                   <td className="mono" style={{ color: e.nbEmails > 0 ? 'var(--orange)' : 'var(--text-muted)' }}>{e.nbEmails}</td>
                 </tr>
               );
@@ -145,11 +145,11 @@ function Eleves({ data }) {
                 </div>
                 <div className="detail-field">
                   <div className="label">Niveau scooter</div>
-                  <div className="value">{selectedEleve.niveauScooter}</div>
+                  <div className="value">{selectedEleve.niveau_scooter || '—'}</div>
                 </div>
                 <div className="detail-field">
                   <div className="label">Source</div>
-                  <div className="value">{selectedEleve.source}</div>
+                  <div className="value">{selectedEleve.source_acquisition || '—'}</div>
                 </div>
                 <div className="detail-field">
                   <div className="label">Statut</div>
@@ -176,9 +176,9 @@ function Eleves({ data }) {
             </div>
 
             <div className="detail-section">
-              <h3><Phone size={14} /> Résumés des appels ({selectedEleve.resumesAppels.length})</h3>
-              {selectedEleve.resumesAppels.length > 0 ? (
-                selectedEleve.resumesAppels.map((r, i) => (
+              <h3><Phone size={14} /> Résumés des appels ({(selectedEleve.resumes_appels || []).length})</h3>
+              {(selectedEleve.resumes_appels || []).length > 0 ? (
+                (selectedEleve.resumes_appels || []).map((r, i) => (
                   <div key={i} className="detail-item">
                     <div className="detail-item-date">{formatDate(r.date_appel)}</div>
                     <div><strong>{r.type_appel || 'Appel'}</strong> — {r.duree_secondes ? `${Math.round(r.duree_secondes / 60)} min` : ''}</div>
@@ -228,32 +228,20 @@ function Eleves({ data }) {
               )}
             </div>
 
-            {selectedEleve.formulaire && (
+            {selectedEleve.form_rempli && (
               <div className="detail-section">
                 <h3><FileText size={14} /> Formulaire pré-formation</h3>
                 <div className="detail-grid">
-                  {selectedEleve.formulaire['Votre Nom & Prénom'] && (
+                  {selectedEleve.niveau_scooter && (
                     <div className="detail-field">
-                      <div className="label">Nom</div>
-                      <div className="value">{selectedEleve.formulaire['Votre Nom & Prénom']}</div>
+                      <div className="label">Niveau scooter</div>
+                      <div className="value">{selectedEleve.niveau_scooter}</div>
                     </div>
                   )}
-                  {selectedEleve.formulaire['Date d\'obtention du Permis B'] && (
-                    <div className="detail-field">
-                      <div className="label">Permis B obtenu</div>
-                      <div className="value">{selectedEleve.formulaire['Date d\'obtention du Permis B']}</div>
-                    </div>
-                  )}
-                  {selectedEleve.formulaire['Avez-vous déjà conduit un scooter ?'] && (
-                    <div className="detail-field">
-                      <div className="label">Conduit un scooter ?</div>
-                      <div className="value">{selectedEleve.formulaire['Avez-vous déjà conduit un scooter ?']}</div>
-                    </div>
-                  )}
-                  {selectedEleve.formulaire['Comment nous avez-vous trouvé ?'] && (
+                  {selectedEleve.source_acquisition && (
                     <div className="detail-field">
                       <div className="label">Source</div>
-                      <div className="value">{selectedEleve.formulaire['Comment nous avez-vous trouvé ?']}</div>
+                      <div className="value">{selectedEleve.source_acquisition}</div>
                     </div>
                   )}
                 </div>
