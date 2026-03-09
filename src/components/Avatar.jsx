@@ -17,7 +17,7 @@ function hashColor(name) {
   return COLORS[Math.abs(hash) % COLORS.length];
 }
 
-export default function Avatar({ name, photoUrl, size = 40 }) {
+export default function Avatar({ name, photoUrl, size = 40, style }) {
   const [imgError, setImgError] = useState(false);
   const initials = getInitials(name);
   const bg = hashColor(name);
@@ -36,6 +36,7 @@ export default function Avatar({ name, photoUrl, size = 40 }) {
     fontWeight: 700,
     color: '#fff',
     userSelect: 'none',
+    ...style,
   };
 
   if (photoUrl && !imgError) {

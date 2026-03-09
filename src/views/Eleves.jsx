@@ -106,7 +106,6 @@ function EleveExpandedPanel({ eleve }) {
       <div className="eleve-detail-grid">
         {/* COLONNE 1 — Identité */}
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
-          <Avatar name={eleve.name} photoUrl={eleve.photo_identite} size={80} />
           <div style={{ fontSize: 16, fontWeight: 700, color: '#f1f5f9', textAlign: 'center' }}>{eleve.name || '—'}</div>
           <div style={{ fontSize: 11, color: '#64748b', fontFamily: 'monospace', wordBreak: 'break-all', textAlign: 'center' }}>{eleve.email || '—'}</div>
           {eleve.phone && <div style={{ fontSize: 13, color: '#94a3b8' }}>{eleve.phone}</div>}
@@ -319,7 +318,9 @@ function Eleves({ data }) {
             <div key={key}>
               <div className="eleve-row" onClick={() => toggleExpand(key)}>
                 {/* Desktop cells */}
-                <span className="er-photo" style={{ opacity: isExpanded ? 0 : 1, transition: 'opacity 0.2s ease' }}><Avatar name={e.name} photoUrl={e.photo_identite} size={32} /></span>
+                <span className="er-photo">
+                  <Avatar name={e.name} photoUrl={e.photo_identite} size={isExpanded ? 80 : 40} style={{ transition: 'width 0.3s ease, height 0.3s ease', flexShrink: 0 }} />
+                </span>
                 <span className="er-name">{e.name || '—'}</span>
                 <span className="er-email">{e.email || '—'}</span>
                 <span className="er-date">{formatDate(session?.start_time)}</span>
@@ -334,7 +335,7 @@ function Eleves({ data }) {
                 </span>
                 {/* Mobile layout */}
                 <div className="er-mobile-l1">
-                  <span style={{ opacity: isExpanded ? 0 : 1, transition: 'opacity 0.2s ease' }}><Avatar name={e.name} photoUrl={e.photo_identite} size={32} /></span>
+                  <Avatar name={e.name} photoUrl={e.photo_identite} size={isExpanded ? 80 : 32} style={{ transition: 'width 0.3s ease, height 0.3s ease', flexShrink: 0 }} />
                   <span style={{ fontWeight: 600, fontSize: 13, color: '#f1f5f9', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.name || '—'}</span>
                   {e.form_rempli
                     ? <span className="invitee-badge green">Form OK</span>
