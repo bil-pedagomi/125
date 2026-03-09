@@ -22,7 +22,7 @@ const ELEVES_CSS = `
   transition: background 0.15s;
 }
 .eleve-row:hover { background: rgba(108,99,255,0.06); }
-.eleve-row .er-photo { flex-shrink: 0; }
+.eleve-row .er-photo { flex-shrink: 0; overflow: visible; }
 .eleve-row .er-name { font-weight: 500; font-size: 13px; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .eleve-row .er-email { font-size: 11px; color: #64748b; font-family: var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .eleve-row .er-date { font-size: 12px; color: #94a3b8; font-family: var(--font-mono); }
@@ -34,7 +34,7 @@ const ELEVES_CSS = `
 
 .eleve-detail-grid {
   display: grid;
-  grid-template-columns: 250px 1fr 300px;
+  grid-template-columns: 1fr 1fr;
   gap: 24px;
 }
 
@@ -104,26 +104,28 @@ function EleveExpandedPanel({ eleve }) {
       overflowY: 'auto',
     }}>
       <div className="eleve-detail-grid">
-        {/* COLONNE 1 — Identité */}
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
-          <div style={{ fontSize: 16, fontWeight: 700, color: '#f1f5f9', textAlign: 'center' }}>{eleve.name || '—'}</div>
-          <div style={{ fontSize: 11, color: '#64748b', fontFamily: 'monospace', wordBreak: 'break-all', textAlign: 'center' }}>{eleve.email || '—'}</div>
-          {eleve.phone && <div style={{ fontSize: 13, color: '#94a3b8' }}>{eleve.phone}</div>}
-
-          <div style={{ height: 1, background: '#1e293b', width: '100%', margin: '8px 0' }} />
-
-          <div style={{ width: '100%' }}>
-            <div style={{ fontSize: 11, color: '#64748b', marginBottom: 2 }}>NEPH</div>
-            <div style={{ fontSize: 13, color: '#e2e8f0' }}>{eleve.neph || <span style={{ color: '#64748b', fontStyle: 'italic' }}>Non renseigné</span>}</div>
-          </div>
-          <div style={{ width: '100%' }}>
-            <div style={{ fontSize: 11, color: '#64748b', marginBottom: 2 }}>Permis B obtenu le</div>
-            <div style={{ fontSize: 13, color: '#e2e8f0' }}>{eleve.date_obtention_permis_b || <span style={{ color: '#64748b', fontStyle: 'italic' }}>Non renseigné</span>}</div>
+        {/* COLONNE GAUCHE — Identité & Documents */}
+        <div style={{ overflow: 'hidden', minWidth: 0 }}>
+          <div style={{ fontSize: 11, color: '#6C63FF', textTransform: 'uppercase', fontWeight: 700, letterSpacing: '0.5px', marginBottom: 12 }}>
+            Identité & Documents
           </div>
 
-          <div style={{ height: 1, background: '#1e293b', width: '100%', margin: '8px 0' }} />
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid #1e293b' }}>
+            <span style={{ fontSize: 12, color: '#64748b' }}>NEPH</span>
+            <span style={{ fontSize: 12, color: '#e2e8f0' }}>{eleve.neph || <span style={{ color: '#64748b', fontStyle: 'italic' }}>Non renseigné</span>}</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid #1e293b' }}>
+            <span style={{ fontSize: 12, color: '#64748b' }}>Permis B obtenu le</span>
+            <span style={{ fontSize: 12, color: '#e2e8f0' }}>{eleve.date_obtention_permis_b || <span style={{ color: '#64748b', fontStyle: 'italic' }}>Non renseigné</span>}</span>
+          </div>
+          {eleve.phone && (
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid #1e293b' }}>
+              <span style={{ fontSize: 12, color: '#64748b' }}>Téléphone</span>
+              <span style={{ fontSize: 12, color: '#e2e8f0' }}>{eleve.phone}</span>
+            </div>
+          )}
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, width: '100%' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginTop: 12 }}>
             {[
               { label: 'Permis R', url: eleve.photo_permis_recto },
               { label: 'Permis V', url: eleve.photo_permis_verso },
@@ -132,7 +134,7 @@ function EleveExpandedPanel({ eleve }) {
             ].map(doc => (
               <button
                 key={doc.label}
-                onClick={doc.url ? () => window.open(doc.url, '_blank') : undefined}
+                onClick={doc.url ? (ev) => { ev.stopPropagation(); window.open(doc.url, '_blank'); } : undefined}
                 style={{
                   fontSize: 10, padding: '5px 8px', borderRadius: 6, border: 'none', fontWeight: 600,
                   cursor: doc.url ? 'pointer' : 'default',
@@ -146,7 +148,7 @@ function EleveExpandedPanel({ eleve }) {
           </div>
         </div>
 
-        {/* COLONNE 2 — Profil conduite */}
+        {/* COLONNE DROITE — Profil conduite + Appels */}
         <div style={{ overflow: 'hidden', minWidth: 0 }}>
           <div style={{ fontSize: 11, color: '#8b5cf6', textTransform: 'uppercase', fontWeight: 700, letterSpacing: '0.5px', marginBottom: 12 }}>
             Profil conduite
@@ -172,11 +174,8 @@ function EleveExpandedPanel({ eleve }) {
               )}
             </div>
           ))}
-        </div>
 
-        {/* COLONNE 3 — Historique appels */}
-        <div style={{ overflow: 'hidden', minWidth: 0 }}>
-          <div style={{ fontSize: 11, color: '#ef4444', textTransform: 'uppercase', fontWeight: 700, letterSpacing: '0.5px', marginBottom: 12 }}>
+          <div style={{ fontSize: 11, color: '#ef4444', textTransform: 'uppercase', fontWeight: 700, letterSpacing: '0.5px', marginBottom: 12, marginTop: 20 }}>
             Appels Ringover ({appels.length})
           </div>
           {appels.length === 0 ? (
