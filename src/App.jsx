@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
-import { LayoutDashboard, CalendarDays, Users } from 'lucide-react';
+import { LayoutDashboard, CalendarDays, Users, LogOut } from 'lucide-react';
 import './App.css';
 import { fetchDashboardData, consolidateData } from './utils';
 import Dashboard from './views/Dashboard';
 import Agenda from './views/Agenda';
 import Eleves from './views/Eleves';
+import LoginPage from './components/LoginPage';
 
 const TABS = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -13,17 +14,24 @@ const TABS = [
 ];
 
 function App() {
+  const [loggedIn, setLoggedIn] = useState(false);
   const [tab, setTab] = useState('dashboard');
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
   useEffect(() => {
+    if (!loggedIn) return;
+    setLoading(true);
     fetchDashboardData()
       .then(raw => setData(consolidateData(raw)))
       .catch(err => setError(err.message))
       .finally(() => setLoading(false));
-  }, []);
+  }, [loggedIn]);
+
+  if (!loggedIn) {
+    return <LoginPage onLogin={() => setLoggedIn(true)} />;
+  }
 
   if (loading) {
     return (
@@ -73,6 +81,14 @@ function App() {
               {t.label}
             </button>
           ))}
+          <button
+            className="tab logout-btn"
+            onClick={() => { setLoggedIn(false); setData(null); setTab('dashboard'); }}
+            title="Déconnexion"
+          >
+            <LogOut size={16} />
+            <span className="logout-label">Déconnexion</span>
+          </button>
         </nav>
       </header>
       <main className="main">
