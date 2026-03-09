@@ -319,7 +319,7 @@ function Eleves({ data }) {
             <div key={key}>
               <div className="eleve-row" onClick={() => toggleExpand(key)}>
                 {/* Desktop cells */}
-                <span className="er-photo"><Avatar name={e.name} photoUrl={e.photo_identite} size={32} /></span>
+                <span className="er-photo" style={{ opacity: isExpanded ? 0 : 1, transition: 'opacity 0.2s ease' }}><Avatar name={e.name} photoUrl={e.photo_identite} size={32} /></span>
                 <span className="er-name">{e.name || '—'}</span>
                 <span className="er-email">{e.email || '—'}</span>
                 <span className="er-date">{formatDate(session?.start_time)}</span>
@@ -334,7 +334,7 @@ function Eleves({ data }) {
                 </span>
                 {/* Mobile layout */}
                 <div className="er-mobile-l1">
-                  <Avatar name={e.name} photoUrl={e.photo_identite} size={32} />
+                  <span style={{ opacity: isExpanded ? 0 : 1, transition: 'opacity 0.2s ease' }}><Avatar name={e.name} photoUrl={e.photo_identite} size={32} /></span>
                   <span style={{ fontWeight: 600, fontSize: 13, color: '#f1f5f9', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.name || '—'}</span>
                   {e.form_rempli
                     ? <span className="invitee-badge green">Form OK</span>
