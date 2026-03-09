@@ -106,8 +106,6 @@ function EleveExpandedPanel({ eleve }) {
       borderRadius: '0 0 12px 12px',
       padding: 24,
       marginTop: -4,
-      maxHeight: 500,
-      overflowY: 'auto',
     }}>
       <div className="eleve-detail-grid">
         {/* COLONNE GAUCHE — Identité & Documents */}
