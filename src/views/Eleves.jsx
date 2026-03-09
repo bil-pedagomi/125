@@ -53,7 +53,7 @@ const ELEVES_CSS = `
   .eleve-row .er-date { display: none; }
 }
 
-@media (max-width: 767px) {
+@media (max-width: 768px) {
   .eleve-row {
     display: flex;
     flex-direction: column;
@@ -341,9 +341,6 @@ function Eleves({ data }) {
                 <div className="er-mobile-l1">
                   <Avatar name={e.name} photoUrl={e.photo_identite} size={isExpanded ? 80 : 32} style={{ transition: 'width 0.3s ease, height 0.3s ease', flexShrink: 0 }} />
                   <span style={{ fontWeight: 600, fontSize: 13, color: '#f1f5f9', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.name || '—'}</span>
-                  {e.form_rempli
-                    ? <span className="invitee-badge green">Form OK</span>
-                    : <span className="invitee-badge orange">Manquant</span>}
                 </div>
                 <div className="er-mobile-l2">
                   <span style={{ fontSize: 11, color: '#64748b', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{e.email || '—'}</span>
