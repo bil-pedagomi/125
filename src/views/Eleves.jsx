@@ -1,15 +1,195 @@
 import { useState, useMemo } from 'react';
-import { Search, X, User, Phone, Mail, FileText, Calendar } from 'lucide-react';
+import { Search, X, User, Phone, Mail, FileText, Calendar, ExternalLink } from 'lucide-react';
 import { formatDate, getMonthKey, getMonthLabel, getSessionType } from '../utils';
-import FicheEleve from '../components/FicheEleve';
 import Avatar from '../components/Avatar';
+
+const NIVEAU_COLORS = {
+  'Débutant': { bg: 'var(--red-bg, rgba(248,113,113,0.15))', color: 'var(--red)' },
+  'Intermédiaire': { bg: 'var(--orange-bg, rgba(251,191,36,0.15))', color: 'var(--orange)' },
+  'Avancé': { bg: 'rgba(96,165,250,0.15)', color: 'var(--blue)' },
+  'Expert': { bg: 'var(--green-bg, rgba(52,211,153,0.15))', color: 'var(--green)' },
+};
+
+function DocBadge({ label, url }) {
+  const exists = !!url;
+  return (
+    <a
+      href={exists ? url : undefined}
+      target={exists ? '_blank' : undefined}
+      rel="noopener noreferrer"
+      style={{
+        display: 'inline-flex', alignItems: 'center', gap: 4,
+        padding: '3px 10px', borderRadius: 6, fontSize: '0.7rem', fontWeight: 600,
+        textDecoration: 'none', cursor: exists ? 'pointer' : 'default',
+        background: exists ? 'var(--green-bg, rgba(52,211,153,0.15))' : 'rgba(107,113,148,0.12)',
+        color: exists ? 'var(--green)' : 'var(--text-muted)',
+        border: `1px solid ${exists ? 'rgba(52,211,153,0.3)' : 'rgba(107,113,148,0.15)'}`,
+      }}
+    >
+      <ExternalLink size={10} />
+      {label}
+    </a>
+  );
+}
+
+function EleveExpandedPanel({ eleve }) {
+  const niveauStyle = NIVEAU_COLORS[eleve.niveau_scooter] || { bg: 'rgba(107,113,148,0.15)', color: 'var(--text-muted)' };
+  const appels = eleve.resumes_appels || [];
+
+  return (
+    <div style={{
+      display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1.25rem',
+      padding: '1.25rem', background: 'var(--bg-secondary)', borderRadius: 10,
+      border: '1px solid var(--border)', marginTop: 2,
+    }}>
+      {/* COLONNE 1 — Identité & Documents */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+        <div style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+          Identité & Documents
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+          <Avatar name={eleve.name} photoUrl={eleve.photo_identite} size={80} />
+          <div>
+            <div style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--text-primary)' }}>{eleve.name || '—'}</div>
+            <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>{eleve.email || '—'}</div>
+            {eleve.phone && (
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>{eleve.phone}</div>
+            )}
+          </div>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+          <div>
+            <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>NEPH</div>
+            <div style={{ fontSize: '0.8rem', color: 'var(--text-primary)', fontFamily: 'var(--font-mono)' }}>{eleve.neph || 'Non renseigné'}</div>
+          </div>
+          <div>
+            <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>Permis B obtenu le</div>
+            <div style={{ fontSize: '0.8rem', color: 'var(--text-primary)', fontFamily: 'var(--font-mono)' }}>{eleve.date_obtention_permis_b || 'Non renseigné'}</div>
+          </div>
+        </div>
+        <div>
+          <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', marginBottom: 6 }}>Documents</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            <DocBadge label="Permis recto" url={eleve.photo_permis_recto} />
+            <DocBadge label="Permis verso" url={eleve.photo_permis_verso} />
+            <DocBadge label="Photo ID" url={eleve.photo_identite} />
+            <DocBadge label="Signature" url={eleve.photo_signature} />
+          </div>
+        </div>
+      </div>
+
+      {/* COLONNE 2 — Profil conduite */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+        <div style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+          Profil conduite
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+          <div>
+            <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>Niveau scooter</div>
+            <span style={{
+              display: 'inline-block', padding: '2px 10px', borderRadius: 6, fontSize: '0.75rem', fontWeight: 600,
+              background: niveauStyle.bg, color: niveauStyle.color, marginTop: 2,
+            }}>
+              {eleve.niveau_scooter || 'Non renseigné'}
+            </span>
+          </div>
+          <div>
+            <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>Déjà conduit</div>
+            <div style={{ fontSize: '0.8rem', fontWeight: 600, color: eleve.deja_conduit ? 'var(--green)' : 'var(--red)', marginTop: 2 }}>
+              {eleve.deja_conduit ? 'Oui' : 'Non'}
+            </div>
+          </div>
+          {eleve.occasions_conduite && (
+            <div>
+              <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>Occasions</div>
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-primary)', marginTop: 2 }}>{eleve.occasions_conduite}</div>
+            </div>
+          )}
+          {eleve.derniere_conduite && (
+            <div>
+              <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>Dernière conduite</div>
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-primary)', marginTop: 2 }}>{eleve.derniere_conduite}</div>
+            </div>
+          )}
+          <div>
+            <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>Source</div>
+            <div style={{ fontSize: '0.8rem', color: 'var(--text-primary)', marginTop: 2 }}>{eleve.source_acquisition || 'Non renseigné'}</div>
+          </div>
+          {eleve.raison_reservation && (
+            <div>
+              <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>Raison réservation</div>
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-primary)', marginTop: 2 }}>{eleve.raison_reservation}</div>
+            </div>
+          )}
+        </div>
+        {eleve.commentaires && (
+          <div>
+            <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>Commentaires</div>
+            <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: 4, lineHeight: 1.4 }}>{eleve.commentaires}</div>
+          </div>
+        )}
+      </div>
+
+      {/* COLONNE 3 — Historique contact */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+        <div style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+          Historique contact
+        </div>
+        {appels.length > 0 ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: 300, overflowY: 'auto' }}>
+            {appels.map((r, i) => (
+              <div key={i} style={{
+                background: 'var(--bg-primary)', borderRadius: 8, padding: '0.6rem 0.75rem',
+                border: '1px solid var(--border)',
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                  <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+                    {formatDate(r.date_appel)}
+                  </span>
+                  {r.duree_secondes && (
+                    <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                      {Math.round(r.duree_secondes / 60)} min
+                    </span>
+                  )}
+                </div>
+                <div style={{ fontSize: '0.8rem', color: 'var(--text-primary)', fontWeight: 500 }}>
+                  {r.type_appel || 'Appel'}
+                </div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: 4, lineHeight: 1.4 }}>
+                  {r.resume || 'Pas de résumé'}
+                </div>
+                {r.motifs && Array.isArray(r.motifs) && r.motifs.length > 0 && (
+                  <div style={{ marginTop: 6, display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                    {r.motifs.map((m, j) => (
+                      <span key={j} style={{
+                        background: 'rgba(108,99,255,0.15)', color: 'var(--accent-light)',
+                        padding: '2px 8px', borderRadius: 6, fontSize: '0.65rem', fontWeight: 500,
+                      }}>{m}</span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div style={{
+            background: 'var(--green-bg, rgba(52,211,153,0.1))', borderRadius: 8,
+            padding: '0.75rem', fontSize: '0.8rem', color: 'var(--green)', fontWeight: 500,
+          }}>
+            Aucun appel — parcours idéal
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 function Eleves({ data }) {
   const { eleves, sessions } = data;
   const [search, setSearch] = useState('');
   const [monthFilter, setMonthFilter] = useState('all');
   const [typeFilter, setTypeFilter] = useState('all');
-  const [selected, setSelected] = useState(null);
+  const [expandedId, setExpandedId] = useState(null);
 
   const months = useMemo(() => {
     const set = new Set();
@@ -20,7 +200,6 @@ function Eleves({ data }) {
     return [...set].sort();
   }, [sessions]);
 
-  // Build a map: invitee calendly_event_id -> session
   const sessionByEventId = useMemo(() => {
     const map = {};
     sessions.forEach(s => { map[s.id] = s; });
@@ -55,8 +234,9 @@ function Eleves({ data }) {
     });
   }, [eleves, search, monthFilter, typeFilter, sessionByEventId]);
 
-  const selectedEleve = selected;
-  const selectedSession = selectedEleve ? getEleveSession(selectedEleve) : null;
+  const toggleExpand = (eleveEmail) => {
+    setExpandedId(expandedId === eleveEmail ? null : eleveEmail);
+  };
 
   return (
     <div>
@@ -87,159 +267,42 @@ function Eleves({ data }) {
         </span>
       </div>
 
-      <div className="table-container">
-        <table className="eleves-table">
-          <thead>
-            <tr>
-              <th>Nom</th>
-              <th>Email</th>
-              <th>Date formation</th>
-              <th>Formulaire</th>
-              <th>Niveau scooter</th>
-              <th>Appels</th>
-              <th>Emails</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map((e, i) => {
-              const session = getEleveSession(e);
-              return (
-                <tr key={i} onClick={() => setSelected(e)}>
-                  <td style={{ fontWeight: 500, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    <Avatar name={e.name} photoUrl={e.photo_identite} size={32} />
-                    {e.name || '—'}
-                  </td>
-                  <td className="mono">{e.email || '—'}</td>
-                  <td className="mono">{formatDate(session?.start_time)}</td>
-                  <td>{e.form_rempli ? <span className="status-yes">Oui</span> : <span className="status-no">Non</span>}</td>
-                  <td>{e.niveau_scooter || '—'}</td>
-                  <td className="mono" style={{ color: e.a_appele ? 'var(--red)' : 'var(--text-muted)' }}>{e.nb_appels || 0}</td>
-                  <td className="mono" style={{ color: e.nbEmails > 0 ? 'var(--orange)' : 'var(--text-muted)' }}>{e.nbEmails}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+      <div className="session-list">
+        {filtered.map((e, i) => {
+          const session = getEleveSession(e);
+          const key = e.email || i;
+          const isExpanded = expandedId === key;
+          return (
+            <div key={key}>
+              <div
+                className="session-row"
+                style={{ cursor: 'pointer' }}
+                onClick={() => toggleExpand(key)}
+              >
+                <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 500, minWidth: 180 }}>
+                  <Avatar name={e.name} photoUrl={e.photo_identite} size={32} />
+                  {e.name || '—'}
+                </span>
+                <span className="mono" style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', minWidth: 180 }}>{e.email || '—'}</span>
+                <span className="mono" style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', minWidth: 90 }}>{formatDate(session?.start_time)}</span>
+                <span style={{ minWidth: 50 }}>
+                  {e.form_rempli ? <span className="invitee-badge green">Form OK</span> : <span className="invitee-badge orange">Manquant</span>}
+                </span>
+                <span style={{ minWidth: 80, fontSize: '0.8rem' }}>{e.niveau_scooter || '—'}</span>
+                <span className="mono" style={{ fontSize: '0.8rem', color: e.a_appele ? 'var(--red)' : 'var(--text-muted)', minWidth: 50 }}>
+                  {e.nb_appels || 0} appel{(e.nb_appels || 0) > 1 ? 's' : ''}
+                </span>
+              </div>
+              {isExpanded && <EleveExpandedPanel eleve={e} />}
+            </div>
+          );
+        })}
         {filtered.length === 0 && (
           <p className="empty-state" style={{ padding: '2rem', textAlign: 'center' }}>
             Aucun élève trouvé
           </p>
         )}
       </div>
-
-      {selectedEleve && (
-        <div className="detail-overlay" onClick={() => setSelected(null)}>
-          <div className="detail-panel" onClick={e => e.stopPropagation()}>
-            <div className="detail-header">
-              <Avatar name={selectedEleve.name} photoUrl={selectedEleve.photo_identite} size={80} />
-              <h2>{selectedEleve.name || selectedEleve.email}</h2>
-              <button className="detail-close" onClick={() => setSelected(null)}>
-                <X size={20} />
-              </button>
-            </div>
-
-            <div className="detail-section">
-              <h3><User size={14} /> Informations</h3>
-              <div className="detail-grid">
-                <div className="detail-field">
-                  <div className="label">Email</div>
-                  <div className="value">{selectedEleve.email || '—'}</div>
-                </div>
-                <div className="detail-field">
-                  <div className="label">Téléphone</div>
-                  <div className="value">{selectedEleve.phone || '—'}</div>
-                </div>
-                <div className="detail-field">
-                  <div className="label">Niveau scooter</div>
-                  <div className="value">{selectedEleve.niveau_scooter || '—'}</div>
-                </div>
-                <div className="detail-field">
-                  <div className="label">Source</div>
-                  <div className="value">{selectedEleve.source_acquisition || '—'}</div>
-                </div>
-                <div className="detail-field">
-                  <div className="label">Statut</div>
-                  <div className="value">{selectedEleve.status || '—'}</div>
-                </div>
-                <div className="detail-field">
-                  <div className="label">Paiement</div>
-                  <div className="value">{selectedEleve.payment_amount ? `${selectedEleve.payment_amount} €` : '—'}</div>
-                </div>
-              </div>
-            </div>
-
-            <div className="detail-section">
-              <h3><Calendar size={14} /> Session</h3>
-              {selectedSession ? (
-                <div className="detail-item">
-                  <div className="detail-item-date">{formatDate(selectedSession.start_time)}</div>
-                  {selectedSession.event_type_name || 'Formation 125'}
-                  {' — '}{getSessionType(selectedSession) === 'we' ? 'Weekend' : 'Semaine'}
-                </div>
-              ) : (
-                <p className="empty-state">Aucune session</p>
-              )}
-            </div>
-
-            <div className="detail-section">
-              <h3><Phone size={14} /> Résumés des appels ({(selectedEleve.resumes_appels || []).length})</h3>
-              {(selectedEleve.resumes_appels || []).length > 0 ? (
-                (selectedEleve.resumes_appels || []).map((r, i) => (
-                  <div key={i} className="detail-item">
-                    <div className="detail-item-date">{formatDate(r.date_appel)}</div>
-                    <div><strong>{r.type_appel || 'Appel'}</strong> — {r.duree_secondes ? `${Math.round(r.duree_secondes / 60)} min` : ''}</div>
-                    <div style={{ marginTop: 4 }}>{r.resume || 'Pas de résumé'}</div>
-                    {r.motifs && Array.isArray(r.motifs) && r.motifs.length > 0 && (
-                      <div style={{ marginTop: 4, display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                        {r.motifs.map((m, j) => (
-                          <span key={j} style={{
-                            background: 'rgba(108, 99, 255, 0.15)',
-                            color: 'var(--accent-light)',
-                            padding: '2px 8px',
-                            borderRadius: 6,
-                            fontSize: '0.7rem',
-                            fontWeight: 500
-                          }}>{m}</span>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                ))
-              ) : (
-                <p className="empty-state">Aucun appel</p>
-              )}
-            </div>
-
-            <div className="detail-section">
-              <h3><Mail size={14} /> Emails ({selectedEleve.emails.length})</h3>
-              {selectedEleve.emails.length > 0 ? (
-                selectedEleve.emails.map((em, i) => (
-                  <div key={i} className="detail-item">
-                    <div className="detail-item-date">{formatDate(em.date_reception)}</div>
-                    <strong>{em.sujet || 'Sans objet'}</strong>
-                    {em.body_extrait && (
-                      <div style={{ marginTop: 4, color: 'var(--text-muted)', fontSize: '0.75rem' }}>
-                        {em.body_extrait}
-                      </div>
-                    )}
-                    {em.categorie && (
-                      <div style={{ marginTop: 4, fontSize: '0.7rem', color: 'var(--accent-light)' }}>
-                        {em.categorie}{em.sous_categorie ? ` → ${em.sous_categorie}` : ''}
-                      </div>
-                    )}
-                  </div>
-                ))
-              ) : (
-                <p className="empty-state">Aucun email</p>
-              )}
-            </div>
-
-            <div className="detail-section">
-              <FicheEleve invitee={selectedEleve} defaultOpen={true} />
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
