@@ -255,12 +255,12 @@ function Eleves({ data }) {
   };
 
   const filtered = useMemo(() => {
-    return eleves.filter(e => {
+    return (eleves || []).filter(e => {
       if (search) {
-        const q = search.toLowerCase();
-        const name = (e.name || '').toLowerCase();
-        const email = (e.email || '').toLowerCase();
-        if (!name.includes(q) && !email.includes(q)) return false;
+        const q = search.toLowerCase().trim();
+        const haystack = [e.name, e.email, e.phone, e.neph].filter(Boolean).join(' ').toLowerCase();
+        const words = q.split(/\s+/);
+        if (!words.every(w => haystack.includes(w))) return false;
       }
       if (monthFilter !== 'all' || typeFilter !== 'all') {
         const session = getEleveSession(e);
@@ -315,7 +315,7 @@ function Eleves({ data }) {
       <div className="session-list">
         {filtered.map((e, i) => {
           const session = getEleveSession(e);
-          const key = e.email || i;
+          const key = e.email || e.name || `eleve-${i}`;
           const isExpanded = expandedId === key;
           return (
             <div key={key}>
