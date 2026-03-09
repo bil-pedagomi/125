@@ -62,12 +62,47 @@ const PRICE = 199;
 export function consolidateData(raw) {
   const { sessions = [], invitees = [], formulaires = [], appels = [], resumes_appels = [], emails = [], kpis = {} } = raw;
 
-  // --- Index formulaires by email (field is "Votre email" or "email_normalise") ---
+  // Debug: log first formulaire to see actual key names from API
+  if (formulaires.length > 0) {
+    console.log('[DEBUG] Formulaires count:', formulaires.length);
+    console.log('[DEBUG] First formulaire keys:', Object.keys(formulaires[0]));
+    console.log('[DEBUG] First formulaire sample:', {
+      'Votre email': formulaires[0]['Votre email'],
+      'email_normalise': formulaires[0].email_normalise,
+    });
+  }
+
+  // --- Index formulaires by email ---
+  // Try multiple possible key names since Supabase may encode column names differently
   const formByEmail = {};
   formulaires.forEach(f => {
-    const key = normalizeEmail(f['Votre email'] || f.email_normalise || f.email);
+    // Find the email value: try exact key, then normalized key, then scan all keys
+    let emailVal = f['Votre email'] || f.email_normalise || f.email;
+    if (!emailVal) {
+      // Fallback: scan all keys for one containing "email" (case-insensitive)
+      for (const k of Object.keys(f)) {
+        if (k.toLowerCase().includes('votre') && k.toLowerCase().includes('email')) {
+          emailVal = f[k];
+          break;
+        }
+      }
+      if (!emailVal) {
+        for (const k of Object.keys(f)) {
+          if (k.toLowerCase() === 'email_normalise' || k.toLowerCase() === 'email') {
+            emailVal = f[k];
+            break;
+          }
+        }
+      }
+    }
+    const key = normalizeEmail(emailVal);
     if (key) formByEmail[key] = f;
   });
+
+  if (formulaires.length > 0) {
+    console.log('[DEBUG] formByEmail size:', Object.keys(formByEmail).length);
+    console.log('[DEBUG] Sample emails in formByEmail:', Object.keys(formByEmail).slice(0, 5));
+  }
 
   // --- Index appels by email (v_125_appels has: email, tel_norm, a_appele, nb_appels) ---
   const appelsByEmail = {};
@@ -97,9 +132,11 @@ export function consolidateData(raw) {
   });
 
   // --- Enrich invitees with cross-referenced data ---
+  let matchCount = 0;
   const enrichedInvitees = invitees.map(inv => {
     const email = normalizeEmail(inv.email);
     const form = formByEmail[email];
+    if (form) matchCount++;
     const appelsForInv = appelsByEmail[email] || [];
     const aAppele = appelsForInv.some(a => a.a_appele);
     const nbAppels = appelsForInv.reduce((sum, a) => sum + (a.nb_appels || 0), 0);
@@ -139,6 +176,11 @@ export function consolidateData(raw) {
       nbEmails: invEmails.length,
     };
   });
+
+  console.log('[DEBUG] Invitees total:', invitees.length, '| Matched with form:', matchCount);
+  if (invitees.length > 0) {
+    console.log('[DEBUG] First invitee email:', invitees[0].email, '| In formByEmail?', !!formByEmail[normalizeEmail(invitees[0].email)]);
+  }
 
   // --- Build session map keyed by session id (int) ---
   const sessionMap = {};
