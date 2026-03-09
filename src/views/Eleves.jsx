@@ -3,167 +3,158 @@ import { Search, X, User, Phone, Mail, FileText, Calendar, ExternalLink } from '
 import { formatDate, getMonthKey, getMonthLabel, getSessionType } from '../utils';
 import Avatar from '../components/Avatar';
 
-const NIVEAU_COLORS = {
-  'Débutant': { bg: 'var(--red-bg, rgba(248,113,113,0.15))', color: 'var(--red)' },
-  'Intermédiaire': { bg: 'var(--orange-bg, rgba(251,191,36,0.15))', color: 'var(--orange)' },
-  'Avancé': { bg: 'rgba(96,165,250,0.15)', color: 'var(--blue)' },
-  'Expert': { bg: 'var(--green-bg, rgba(52,211,153,0.15))', color: 'var(--green)' },
+const NIVEAU_BADGE = {
+  'Débutant': { bg: 'rgba(239,68,68,0.15)', color: '#ef4444' },
+  'Intermédiaire': { bg: 'rgba(245,158,11,0.15)', color: '#f59e0b' },
+  'Avancé': { bg: 'rgba(59,130,246,0.15)', color: '#3b82f6' },
+  'Expert': { bg: 'rgba(16,185,129,0.15)', color: '#10b981' },
 };
 
-function DocBadge({ label, url }) {
+const truncate = (str, max) => {
+  if (!str) return null;
+  return str.length > max ? str.slice(0, max) + '…' : str;
+};
+
+const sectionTitle = { fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10 };
+const labelStyle = { fontSize: 11, color: '#64748b', fontWeight: 600, marginBottom: 2 };
+const valueStyle = { fontSize: 13, color: '#e2e8f0', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%', wordBreak: 'break-word' };
+const separator = { borderTop: '1px solid #1e293b', margin: '10px 0' };
+
+function DocBtn({ label, url }) {
   const exists = !!url;
   return (
-    <a
-      href={exists ? url : undefined}
-      target={exists ? '_blank' : undefined}
-      rel="noopener noreferrer"
+    <button
+      onClick={exists ? () => window.open(url, '_blank') : undefined}
       style={{
-        display: 'inline-flex', alignItems: 'center', gap: 4,
-        padding: '3px 10px', borderRadius: 6, fontSize: '0.7rem', fontWeight: 600,
-        textDecoration: 'none', cursor: exists ? 'pointer' : 'default',
-        background: exists ? 'var(--green-bg, rgba(52,211,153,0.15))' : 'rgba(107,113,148,0.12)',
-        color: exists ? 'var(--green)' : 'var(--text-muted)',
-        border: `1px solid ${exists ? 'rgba(52,211,153,0.3)' : 'rgba(107,113,148,0.15)'}`,
+        padding: '6px 10px', fontSize: 11, borderRadius: 6, fontWeight: 600, border: 'none',
+        cursor: exists ? 'pointer' : 'default',
+        background: exists ? 'rgba(16,185,129,0.15)' : '#334155',
+        color: exists ? '#10b981' : '#64748b',
       }}
     >
-      <ExternalLink size={10} />
       {label}
-    </a>
+    </button>
+  );
+}
+
+function FieldRow({ label, children }) {
+  return (
+    <div style={{ marginBottom: 8, overflow: 'hidden' }}>
+      <div style={labelStyle}>{label}</div>
+      <div style={valueStyle}>{children}</div>
+    </div>
   );
 }
 
 function EleveExpandedPanel({ eleve }) {
-  const niveauStyle = NIVEAU_COLORS[eleve.niveau_scooter] || { bg: 'rgba(107,113,148,0.15)', color: 'var(--text-muted)' };
+  const niveauStyle = NIVEAU_BADGE[eleve.niveau_scooter] || { bg: 'rgba(107,113,148,0.15)', color: '#64748b' };
   const appels = eleve.resumes_appels || [];
 
   return (
-    <div style={{
-      display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1.25rem',
-      padding: '1.25rem', background: 'var(--bg-secondary)', borderRadius: 10,
-      border: '1px solid var(--border)', marginTop: 2,
-    }}>
-      {/* COLONNE 1 — Identité & Documents */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-        <div style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-          Identité & Documents
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+    <div className="eleve-panel">
+      {/* COLONNE 1 — Identité */}
+      <div style={{ overflow: 'hidden', minWidth: 0 }}>
+        <div style={{ ...sectionTitle, color: '#6C63FF' }}>Identité</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
           <Avatar name={eleve.name} photoUrl={eleve.photo_identite} size={80} />
-          <div>
-            <div style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--text-primary)' }}>{eleve.name || '—'}</div>
-            <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>{eleve.email || '—'}</div>
-            {eleve.phone && (
-              <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>{eleve.phone}</div>
-            )}
+          <div style={{ minWidth: 0, overflow: 'hidden' }}>
+            <div style={{ fontWeight: 700, fontSize: 16, color: '#f1f5f9', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{eleve.name || '—'}</div>
+            <div style={{ fontSize: 12, color: '#94a3b8', fontFamily: 'var(--font-mono)', wordBreak: 'break-all' }}>{eleve.email || '—'}</div>
+            {eleve.phone && <div style={{ fontSize: 12, color: '#94a3b8', fontFamily: 'var(--font-mono)' }}>{eleve.phone}</div>}
           </div>
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
-          <div>
-            <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>NEPH</div>
-            <div style={{ fontSize: '0.8rem', color: 'var(--text-primary)', fontFamily: 'var(--font-mono)' }}>{eleve.neph || 'Non renseigné'}</div>
-          </div>
-          <div>
-            <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>Permis B obtenu le</div>
-            <div style={{ fontSize: '0.8rem', color: 'var(--text-primary)', fontFamily: 'var(--font-mono)' }}>{eleve.date_obtention_permis_b || 'Non renseigné'}</div>
-          </div>
-        </div>
-        <div>
-          <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', marginBottom: 6 }}>Documents</div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-            <DocBadge label="Permis recto" url={eleve.photo_permis_recto} />
-            <DocBadge label="Permis verso" url={eleve.photo_permis_verso} />
-            <DocBadge label="Photo ID" url={eleve.photo_identite} />
-            <DocBadge label="Signature" url={eleve.photo_signature} />
-          </div>
+        <div style={separator} />
+        <FieldRow label="NEPH">
+          <span style={!eleve.neph ? { fontStyle: 'italic', color: '#64748b' } : {}}>
+            {eleve.neph || 'Non renseigné'}
+          </span>
+        </FieldRow>
+        <FieldRow label="Permis B obtenu le">
+          <span style={!eleve.date_obtention_permis_b ? { fontStyle: 'italic', color: '#64748b' } : {}}>
+            {eleve.date_obtention_permis_b || 'Non renseigné'}
+          </span>
+        </FieldRow>
+        <div style={separator} />
+        <div style={labelStyle}>Documents</div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginTop: 4 }}>
+          <DocBtn label="Permis R" url={eleve.photo_permis_recto} />
+          <DocBtn label="Permis V" url={eleve.photo_permis_verso} />
+          <DocBtn label="Photo" url={eleve.photo_identite} />
+          <DocBtn label="Signature" url={eleve.photo_signature} />
         </div>
       </div>
 
       {/* COLONNE 2 — Profil conduite */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-        <div style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-          Profil conduite
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
-          <div>
-            <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>Niveau scooter</div>
-            <span style={{
-              display: 'inline-block', padding: '2px 10px', borderRadius: 6, fontSize: '0.75rem', fontWeight: 600,
-              background: niveauStyle.bg, color: niveauStyle.color, marginTop: 2,
-            }}>
-              {eleve.niveau_scooter || 'Non renseigné'}
-            </span>
-          </div>
-          <div>
-            <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>Déjà conduit</div>
-            <div style={{ fontSize: '0.8rem', fontWeight: 600, color: eleve.deja_conduit ? 'var(--green)' : 'var(--red)', marginTop: 2 }}>
-              {eleve.deja_conduit ? 'Oui' : 'Non'}
-            </div>
-          </div>
-          {eleve.occasions_conduite && (
-            <div>
-              <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>Occasions</div>
-              <div style={{ fontSize: '0.8rem', color: 'var(--text-primary)', marginTop: 2 }}>{eleve.occasions_conduite}</div>
-            </div>
-          )}
-          {eleve.derniere_conduite && (
-            <div>
-              <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>Dernière conduite</div>
-              <div style={{ fontSize: '0.8rem', color: 'var(--text-primary)', marginTop: 2 }}>{eleve.derniere_conduite}</div>
-            </div>
-          )}
-          <div>
-            <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>Source</div>
-            <div style={{ fontSize: '0.8rem', color: 'var(--text-primary)', marginTop: 2 }}>{eleve.source_acquisition || 'Non renseigné'}</div>
-          </div>
-          {eleve.raison_reservation && (
-            <div>
-              <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>Raison réservation</div>
-              <div style={{ fontSize: '0.8rem', color: 'var(--text-primary)', marginTop: 2 }}>{eleve.raison_reservation}</div>
-            </div>
-          )}
-        </div>
+      <div style={{ overflow: 'hidden', minWidth: 0 }}>
+        <div style={{ ...sectionTitle, color: '#6C63FF' }}>Profil conduite</div>
+        <FieldRow label="Niveau scooter">
+          <span style={{
+            display: 'inline-block', padding: '2px 10px', borderRadius: 6, fontSize: 12, fontWeight: 600,
+            background: niveauStyle.bg, color: niveauStyle.color,
+          }}>
+            {eleve.niveau_scooter || 'Non renseigné'}
+          </span>
+        </FieldRow>
+        <FieldRow label="Déjà conduit">
+          <span style={{ fontWeight: 600, color: eleve.deja_conduit ? '#10b981' : '#ef4444' }}>
+            {eleve.deja_conduit ? 'Oui' : 'Non'}
+          </span>
+        </FieldRow>
+        {eleve.occasions_conduite && (
+          <FieldRow label="Occasions">{truncate(eleve.occasions_conduite, 100)}</FieldRow>
+        )}
+        {eleve.derniere_conduite && (
+          <FieldRow label="Dernière conduite">{eleve.derniere_conduite}</FieldRow>
+        )}
+        <FieldRow label="Source">{eleve.source_acquisition || 'Non renseigné'}</FieldRow>
+        {eleve.raison_reservation && (
+          <FieldRow label="Raison réservation">{truncate(eleve.raison_reservation, 100)}</FieldRow>
+        )}
         {eleve.commentaires && (
-          <div>
-            <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>Commentaires</div>
-            <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: 4, lineHeight: 1.4 }}>{eleve.commentaires}</div>
-          </div>
+          <FieldRow label="Commentaires">
+            <span style={{ color: '#94a3b8' }}>{eleve.commentaires}</span>
+          </FieldRow>
         )}
       </div>
 
-      {/* COLONNE 3 — Historique contact */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-        <div style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-          Historique contact
+      {/* COLONNE 3 — Historique appels */}
+      <div style={{ overflow: 'hidden', minWidth: 0 }}>
+        <div style={{ ...sectionTitle, color: '#ef4444' }}>
+          Appels Ringover ({appels.length})
         </div>
         {appels.length > 0 ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: 300, overflowY: 'auto' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 400, overflowY: 'auto' }}>
             {appels.map((r, i) => (
               <div key={i} style={{
-                background: 'var(--bg-primary)', borderRadius: 8, padding: '0.6rem 0.75rem',
-                border: '1px solid var(--border)',
+                background: '#1e293b', borderRadius: 8, padding: '10px 12px',
+                border: '1px solid #334155', overflow: 'hidden',
               }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                  <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+                  <span style={{ fontSize: 11, color: '#94a3b8', fontFamily: 'var(--font-mono)' }}>
                     {formatDate(r.date_appel)}
                   </span>
-                  {r.duree_secondes && (
-                    <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                  {r.duree_secondes != null && (
+                    <span style={{
+                      fontSize: 10, fontWeight: 600, padding: '2px 8px', borderRadius: 4,
+                      background: 'rgba(239,68,68,0.15)', color: '#ef4444',
+                    }}>
                       {Math.round(r.duree_secondes / 60)} min
                     </span>
                   )}
                 </div>
-                <div style={{ fontSize: '0.8rem', color: 'var(--text-primary)', fontWeight: 500 }}>
-                  {r.type_appel || 'Appel'}
-                </div>
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: 4, lineHeight: 1.4 }}>
+                <div style={{
+                  fontSize: 12, color: '#cbd5e1', marginTop: 4, lineHeight: 1.4,
+                  overflow: 'hidden', display: '-webkit-box',
+                  WebkitLineClamp: 3, WebkitBoxOrient: 'vertical',
+                }}>
                   {r.resume || 'Pas de résumé'}
                 </div>
                 {r.motifs && Array.isArray(r.motifs) && r.motifs.length > 0 && (
                   <div style={{ marginTop: 6, display: 'flex', gap: 4, flexWrap: 'wrap' }}>
                     {r.motifs.map((m, j) => (
                       <span key={j} style={{
-                        background: 'rgba(108,99,255,0.15)', color: 'var(--accent-light)',
-                        padding: '2px 8px', borderRadius: 6, fontSize: '0.65rem', fontWeight: 500,
+                        background: 'rgba(245,158,11,0.15)', color: '#f59e0b',
+                        padding: '2px 8px', borderRadius: 6, fontSize: 10, fontWeight: 600,
                       }}>{m}</span>
                     ))}
                   </div>
@@ -173,8 +164,8 @@ function EleveExpandedPanel({ eleve }) {
           </div>
         ) : (
           <div style={{
-            background: 'var(--green-bg, rgba(52,211,153,0.1))', borderRadius: 8,
-            padding: '0.75rem', fontSize: '0.8rem', color: 'var(--green)', fontWeight: 500,
+            background: 'rgba(16,185,129,0.1)', borderRadius: 8,
+            padding: 12, fontSize: 13, color: '#10b981', fontWeight: 500,
           }}>
             Aucun appel — parcours idéal
           </div>
