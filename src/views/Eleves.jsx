@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Search, X, User, Phone, Mail, FileText, Calendar, ExternalLink } from 'lucide-react';
+import { Search } from 'lucide-react';
 import { formatDate, getMonthKey, getMonthLabel, getSessionType } from '../utils';
 import Avatar from '../components/Avatar';
 
@@ -10,127 +10,128 @@ const NIVEAU_BADGE = {
   'Expert': { bg: 'rgba(16,185,129,0.15)', color: '#10b981' },
 };
 
-const truncate = (str, max) => {
-  if (!str) return null;
-  return str.length > max ? str.slice(0, max) + '…' : str;
-};
-
-const sectionTitle = { fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10 };
-const labelStyle = { fontSize: 11, color: '#64748b', fontWeight: 600, marginBottom: 2 };
-const valueStyle = { fontSize: 13, color: '#e2e8f0', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%', wordBreak: 'break-word' };
-const separator = { borderTop: '1px solid #1e293b', margin: '10px 0' };
-
-function DocBtn({ label, url }) {
-  const exists = !!url;
-  return (
-    <button
-      onClick={exists ? () => window.open(url, '_blank') : undefined}
-      style={{
-        padding: '6px 10px', fontSize: 11, borderRadius: 6, fontWeight: 600, border: 'none',
-        cursor: exists ? 'pointer' : 'default',
-        background: exists ? 'rgba(16,185,129,0.15)' : '#334155',
-        color: exists ? '#10b981' : '#64748b',
-      }}
-    >
-      {label}
-    </button>
-  );
-}
-
-function FieldRow({ label, children }) {
-  return (
-    <div style={{ marginBottom: 8, overflow: 'hidden' }}>
-      <div style={labelStyle}>{label}</div>
-      <div style={valueStyle}>{children}</div>
-    </div>
-  );
-}
-
 function EleveExpandedPanel({ eleve }) {
   const niveauStyle = NIVEAU_BADGE[eleve.niveau_scooter] || { bg: 'rgba(107,113,148,0.15)', color: '#64748b' };
   const appels = eleve.resumes_appels || [];
 
+  const profilRows = [
+    { label: 'Niveau', value: eleve.niveau_scooter, badge: true },
+    { label: 'Déjà conduit', value: eleve.deja_conduit ? 'Oui' : 'Non', color: eleve.deja_conduit ? '#10b981' : '#ef4444' },
+    eleve.occasions_conduite && { label: 'Occasions', value: eleve.occasions_conduite },
+    eleve.derniere_conduite && { label: 'Dernière conduite', value: eleve.derniere_conduite },
+    { label: 'Source', value: eleve.source_acquisition || '—' },
+    eleve.raison_reservation && { label: 'Raison', value: eleve.raison_reservation },
+    eleve.commentaires && { label: 'Commentaires', value: eleve.commentaires },
+  ].filter(Boolean);
+
   return (
-    <div className="eleve-panel">
-      {/* COLONNE 1 — Identité */}
-      <div style={{ overflow: 'hidden', minWidth: 0 }}>
-        <div style={{ ...sectionTitle, color: '#6C63FF' }}>Identité</div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
-          <Avatar name={eleve.name} photoUrl={eleve.photo_identite} size={80} />
-          <div style={{ minWidth: 0, overflow: 'hidden' }}>
-            <div style={{ fontWeight: 700, fontSize: 16, color: '#f1f5f9', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{eleve.name || '—'}</div>
-            <div style={{ fontSize: 12, color: '#94a3b8', fontFamily: 'var(--font-mono)', wordBreak: 'break-all' }}>{eleve.email || '—'}</div>
-            {eleve.phone && <div style={{ fontSize: 12, color: '#94a3b8', fontFamily: 'var(--font-mono)' }}>{eleve.phone}</div>}
+    <div style={{
+      background: '#0f172a',
+      border: '1px solid #1e293b',
+      borderTop: 'none',
+      borderRadius: '0 0 12px 12px',
+      padding: 24,
+      marginTop: -4,
+      maxHeight: 500,
+      overflowY: 'auto',
+    }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '250px 1fr 300px', gap: 24 }}>
+        {/* COLONNE 1 — Identité */}
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
+          {eleve.photo_identite ? (
+            <img
+              src={eleve.photo_identite}
+              alt={eleve.name}
+              style={{ width: 80, height: 80, borderRadius: '50%', objectFit: 'cover', border: '2px solid #334155' }}
+              onError={(e) => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'flex'; }}
+            />
+          ) : null}
+          {!eleve.photo_identite && <Avatar name={eleve.name} size={80} />}
+          {eleve.photo_identite && <div style={{ display: 'none' }}><Avatar name={eleve.name} size={80} /></div>}
+
+          <div style={{ fontSize: 16, fontWeight: 700, color: '#f1f5f9', textAlign: 'center' }}>{eleve.name || '—'}</div>
+          <div style={{ fontSize: 11, color: '#64748b', fontFamily: 'monospace', wordBreak: 'break-all', textAlign: 'center' }}>{eleve.email || '—'}</div>
+          {eleve.phone && <div style={{ fontSize: 13, color: '#94a3b8' }}>{eleve.phone}</div>}
+
+          <div style={{ height: 1, background: '#1e293b', width: '100%', margin: '8px 0' }} />
+
+          <div style={{ width: '100%' }}>
+            <div style={{ fontSize: 11, color: '#64748b', marginBottom: 2 }}>NEPH</div>
+            <div style={{ fontSize: 13, color: '#e2e8f0' }}>{eleve.neph || <span style={{ color: '#64748b', fontStyle: 'italic' }}>Non renseigné</span>}</div>
+          </div>
+          <div style={{ width: '100%' }}>
+            <div style={{ fontSize: 11, color: '#64748b', marginBottom: 2 }}>Permis B obtenu le</div>
+            <div style={{ fontSize: 13, color: '#e2e8f0' }}>{eleve.date_obtention_permis_b || <span style={{ color: '#64748b', fontStyle: 'italic' }}>Non renseigné</span>}</div>
+          </div>
+
+          <div style={{ height: 1, background: '#1e293b', width: '100%', margin: '8px 0' }} />
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, width: '100%' }}>
+            {[
+              { label: 'Permis R', url: eleve.photo_permis_recto },
+              { label: 'Permis V', url: eleve.photo_permis_verso },
+              { label: 'Photo', url: eleve.photo_identite },
+              { label: 'Signature', url: eleve.photo_signature },
+            ].map(doc => (
+              <button
+                key={doc.label}
+                onClick={doc.url ? () => window.open(doc.url, '_blank') : undefined}
+                style={{
+                  fontSize: 10, padding: '5px 8px', borderRadius: 6, border: 'none', fontWeight: 600,
+                  cursor: doc.url ? 'pointer' : 'default',
+                  background: doc.url ? 'rgba(16,185,129,0.15)' : '#334155',
+                  color: doc.url ? '#10b981' : '#64748b',
+                }}
+              >
+                {doc.label}
+              </button>
+            ))}
           </div>
         </div>
-        <div style={separator} />
-        <FieldRow label="NEPH">
-          <span style={!eleve.neph ? { fontStyle: 'italic', color: '#64748b' } : {}}>
-            {eleve.neph || 'Non renseigné'}
-          </span>
-        </FieldRow>
-        <FieldRow label="Permis B obtenu le">
-          <span style={!eleve.date_obtention_permis_b ? { fontStyle: 'italic', color: '#64748b' } : {}}>
-            {eleve.date_obtention_permis_b || 'Non renseigné'}
-          </span>
-        </FieldRow>
-        <div style={separator} />
-        <div style={labelStyle}>Documents</div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginTop: 4 }}>
-          <DocBtn label="Permis R" url={eleve.photo_permis_recto} />
-          <DocBtn label="Permis V" url={eleve.photo_permis_verso} />
-          <DocBtn label="Photo" url={eleve.photo_identite} />
-          <DocBtn label="Signature" url={eleve.photo_signature} />
-        </div>
-      </div>
 
-      {/* COLONNE 2 — Profil conduite */}
-      <div style={{ overflow: 'hidden', minWidth: 0 }}>
-        <div style={{ ...sectionTitle, color: '#6C63FF' }}>Profil conduite</div>
-        <FieldRow label="Niveau scooter">
-          <span style={{
-            display: 'inline-block', padding: '2px 10px', borderRadius: 6, fontSize: 12, fontWeight: 600,
-            background: niveauStyle.bg, color: niveauStyle.color,
-          }}>
-            {eleve.niveau_scooter || 'Non renseigné'}
-          </span>
-        </FieldRow>
-        <FieldRow label="Déjà conduit">
-          <span style={{ fontWeight: 600, color: eleve.deja_conduit ? '#10b981' : '#ef4444' }}>
-            {eleve.deja_conduit ? 'Oui' : 'Non'}
-          </span>
-        </FieldRow>
-        {eleve.occasions_conduite && (
-          <FieldRow label="Occasions">{truncate(eleve.occasions_conduite, 100)}</FieldRow>
-        )}
-        {eleve.derniere_conduite && (
-          <FieldRow label="Dernière conduite">{eleve.derniere_conduite}</FieldRow>
-        )}
-        <FieldRow label="Source">{eleve.source_acquisition || 'Non renseigné'}</FieldRow>
-        {eleve.raison_reservation && (
-          <FieldRow label="Raison réservation">{truncate(eleve.raison_reservation, 100)}</FieldRow>
-        )}
-        {eleve.commentaires && (
-          <FieldRow label="Commentaires">
-            <span style={{ color: '#94a3b8' }}>{eleve.commentaires}</span>
-          </FieldRow>
-        )}
-      </div>
-
-      {/* COLONNE 3 — Historique appels */}
-      <div style={{ overflow: 'hidden', minWidth: 0 }}>
-        <div style={{ ...sectionTitle, color: '#ef4444' }}>
-          Appels Ringover ({appels.length})
+        {/* COLONNE 2 — Profil conduite */}
+        <div style={{ overflow: 'hidden', minWidth: 0 }}>
+          <div style={{ fontSize: 11, color: '#8b5cf6', textTransform: 'uppercase', fontWeight: 700, letterSpacing: '0.5px', marginBottom: 12 }}>
+            Profil conduite
+          </div>
+          {profilRows.map((row, i) => (
+            <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid #1e293b' }}>
+              <span style={{ fontSize: 12, color: '#64748b', minWidth: 120, flexShrink: 0 }}>{row.label}</span>
+              {row.badge ? (
+                <span style={{
+                  fontSize: 12, fontWeight: 600, padding: '2px 10px', borderRadius: 6,
+                  background: niveauStyle.bg, color: niveauStyle.color,
+                  textAlign: 'right',
+                }}>
+                  {eleve.niveau_scooter || 'Non renseigné'}
+                </span>
+              ) : (
+                <span style={{
+                  fontSize: 12, color: row.color || '#e2e8f0', textAlign: 'right',
+                  maxWidth: '60%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                  fontWeight: row.color ? 600 : 400,
+                }}>
+                  {row.value}
+                </span>
+              )}
+            </div>
+          ))}
         </div>
-        {appels.length > 0 ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 400, overflowY: 'auto' }}>
-            {appels.map((r, i) => (
-              <div key={i} style={{
-                background: '#1e293b', borderRadius: 8, padding: '10px 12px',
-                border: '1px solid #334155', overflow: 'hidden',
-              }}>
+
+        {/* COLONNE 3 — Historique appels */}
+        <div style={{ overflow: 'hidden', minWidth: 0 }}>
+          <div style={{ fontSize: 11, color: '#ef4444', textTransform: 'uppercase', fontWeight: 700, letterSpacing: '0.5px', marginBottom: 12 }}>
+            Appels Ringover ({appels.length})
+          </div>
+          {appels.length === 0 ? (
+            <div style={{ fontSize: 13, color: '#10b981', padding: '8px 0' }}>
+              Aucun appel
+            </div>
+          ) : (
+            appels.map((r, i) => (
+              <div key={i} style={{ padding: '8px 0', borderBottom: '1px solid #1e293b' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                  <span style={{ fontSize: 11, color: '#94a3b8', fontFamily: 'var(--font-mono)' }}>
+                  <span style={{ fontSize: 11, fontWeight: 600, color: '#94a3b8' }}>
                     {formatDate(r.date_appel)}
                   </span>
                   {r.duree_secondes != null && (
@@ -143,7 +144,7 @@ function EleveExpandedPanel({ eleve }) {
                   )}
                 </div>
                 <div style={{
-                  fontSize: 12, color: '#cbd5e1', marginTop: 4, lineHeight: 1.4,
+                  fontSize: 11, color: '#94a3b8', lineHeight: 1.4,
                   overflow: 'hidden', display: '-webkit-box',
                   WebkitLineClamp: 3, WebkitBoxOrient: 'vertical',
                 }}>
@@ -160,16 +161,9 @@ function EleveExpandedPanel({ eleve }) {
                   </div>
                 )}
               </div>
-            ))}
-          </div>
-        ) : (
-          <div style={{
-            background: 'rgba(16,185,129,0.1)', borderRadius: 8,
-            padding: 12, fontSize: 13, color: '#10b981', fontWeight: 500,
-          }}>
-            Aucun appel — parcours idéal
-          </div>
-        )}
+            ))
+          )}
+        </div>
       </div>
     </div>
   );

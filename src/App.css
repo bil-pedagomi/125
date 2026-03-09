@@ -875,20 +875,6 @@
   cursor: default;
 }
 
-/* Eleve expanded panel */
-.eleve-panel {
-  display: grid;
-  grid-template-columns: 1fr 1.5fr 1fr;
-  gap: 24px;
-  padding: 24px;
-  background: #0f172a;
-  border: 1px solid #1e293b;
-  border-radius: 0 0 12px 12px;
-  max-height: 500px;
-  overflow-y: auto;
-  overflow-x: hidden;
-}
-
 /* Responsive */
 @media (max-width: 1200px) {
   .kpi-grid {
@@ -919,9 +905,5 @@
   }
   .detail-panel {
     width: 100vw;
-  }
-  .eleve-panel {
-    grid-template-columns: 1fr;
-    max-height: none;
   }
 }
