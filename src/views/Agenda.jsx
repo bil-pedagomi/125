@@ -3,6 +3,7 @@ import { CalendarDays, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, FileCh
 import { formatDateShort, formatDate, getMonthKey, getMonthLabel, getSessionType } from '../utils';
 import FicheEleve from '../components/FicheEleve';
 import Avatar from '../components/Avatar';
+import PhoneLink from '../components/PhoneLink';
 
 const PRICE = 199;
 
@@ -271,7 +272,7 @@ function Agenda({ data }) {
                               <div className="invitee-info">
                                 <span className="invitee-name">{inv.name || '—'}</span>
                                 <span className="invitee-email">{inv.email || '—'}</span>
-                                {inv.phone && <span className="invitee-phone">{inv.phone}</span>}
+                                {inv.phone && <PhoneLink phone={inv.phone} />}
                                 {inv.payment_amount && (
                                   <span className="invitee-payment">
                                     {inv.payment_amount} {inv.payment_currency || '€'}

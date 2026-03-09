@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react';
 import { Search } from 'lucide-react';
 import { formatDate, getMonthKey, getMonthLabel, getSessionType } from '../utils';
 import Avatar from '../components/Avatar';
+import PhoneLink from '../components/PhoneLink';
 
 const NIVEAU_BADGE = {
   'Débutant': { bg: 'rgba(239,68,68,0.15)', color: '#ef4444' },
@@ -133,7 +134,7 @@ function EleveExpandedPanel({ eleve }) {
           {eleve.phone && (
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid #1e293b' }}>
               <span style={{ fontSize: 12, color: '#64748b' }}>Téléphone</span>
-              <span style={{ fontSize: 12, color: '#e2e8f0' }}>{eleve.phone}</span>
+              <PhoneLink phone={eleve.phone} />
             </div>
           )}
 
