@@ -49,9 +49,40 @@ function Agenda({ data }) {
     });
   }, [sessions, monthFilter, typeFilter]);
 
+  // KPIs from filtered sessions
+  const kpis = useMemo(() => {
+    const allInvitees = filtered.flatMap(s => s.invitees || []);
+    const totalEleves = filtered.reduce((sum, s) => sum + ((s.invitees || []).length || s.nb_invitees || 0), 0);
+    const ca = totalEleves * PRICE;
+    const nbAppele = allInvitees.filter(i => i.a_appele).length;
+    const pctAppele = totalEleves > 0 ? Math.round((nbAppele / totalEleves) * 100) : 0;
+    const nbFormRempli = allInvitees.filter(i => i.form_rempli).length;
+    const pctForm = totalEleves > 0 ? Math.round((nbFormRempli / totalEleves) * 100) : 0;
+    const withForm = allInvitees.filter(i => i.form_rempli);
+    const nbDejaConduit = withForm.filter(i => i.deja_conduit).length;
+    const pctDejaConduit = withForm.length > 0 ? Math.round((nbDejaConduit / withForm.length) * 100) : 0;
+    // Niveaux
+    const niveaux = { 'Débutant': 0, 'Intermédiaire': 0, 'Avancé': 0, 'Expert': 0 };
+    withForm.forEach(i => {
+      const n = i.niveau_scooter;
+      if (n && niveaux.hasOwnProperty(n)) niveaux[n]++;
+    });
+    const totalNiveaux = Object.values(niveaux).reduce((a, b) => a + b, 0);
+    return { totalEleves, ca, pctAppele, pctForm, nbFormRempli, pctDejaConduit, niveaux, totalNiveaux };
+  }, [filtered]);
+
   const toggleExpand = (id) => {
     setExpandedId(expandedId === id ? null : id);
   };
+
+  const pctColor = (val, thresholds) => {
+    // thresholds: { green: condition, orange: condition } — else red
+    if (thresholds.greenIf(val)) return 'var(--green)';
+    if (thresholds.orangeIf(val)) return 'var(--orange)';
+    return 'var(--red)';
+  };
+
+  const NIVEAU_COLORS = { 'Débutant': '#F87171', 'Intermédiaire': '#FBBF24', 'Avancé': '#60A5FA', 'Expert': '#34D399' };
 
   return (
     <div>
@@ -88,6 +119,68 @@ function Agenda({ data }) {
           {filtered.length} session{filtered.length > 1 ? 's' : ''}
         </span>
       </div>
+
+      <div className="kpi-grid" style={{ marginBottom: '1rem' }}>
+        <div className="kpi-card green">
+          <span className="kpi-label"><Euro size={12} style={{ display: 'inline', marginRight: 4 }} />CA du mois</span>
+          <span className="kpi-value" style={{ color: 'var(--green)' }}>{kpis.ca.toLocaleString('fr-FR')} €</span>
+          <span className="kpi-sub">@{PRICE}€/élève</span>
+        </div>
+        <div className="kpi-card accent">
+          <span className="kpi-label"><Users size={12} style={{ display: 'inline', marginRight: 4 }} />Élèves</span>
+          <span className="kpi-value">{kpis.totalEleves}</span>
+          <span className="kpi-sub">{filtered.length} session{filtered.length > 1 ? 's' : ''}</span>
+        </div>
+        <div className="kpi-card" style={{ borderLeft: `3px solid ${pctColor(kpis.pctAppele, { greenIf: v => v < 30, orangeIf: v => v <= 50 })}` }}>
+          <span className="kpi-label"><PhoneCall size={12} style={{ display: 'inline', marginRight: 4 }} />Ont téléphoné</span>
+          <span className="kpi-value" style={{ color: pctColor(kpis.pctAppele, { greenIf: v => v < 30, orangeIf: v => v <= 50 }) }}>{kpis.pctAppele}%</span>
+          <span className="kpi-sub">objectif : 0%</span>
+        </div>
+        <div className="kpi-card" style={{ borderLeft: `3px solid ${pctColor(kpis.pctForm, { greenIf: v => v > 80, orangeIf: v => v >= 50 })}` }}>
+          <span className="kpi-label"><FileCheck size={12} style={{ display: 'inline', marginRight: 4 }} />Formulaire rempli</span>
+          <span className="kpi-value" style={{ color: pctColor(kpis.pctForm, { greenIf: v => v > 80, orangeIf: v => v >= 50 }) }}>{kpis.pctForm}%</span>
+          <span className="kpi-sub">{kpis.nbFormRempli}/{kpis.totalEleves}</span>
+        </div>
+        <div className="kpi-card blue">
+          <span className="kpi-label">Déjà conduit</span>
+          <span className="kpi-value">{kpis.pctDejaConduit}%</span>
+          <span className="kpi-sub">parmi formulaires remplis</span>
+        </div>
+        <div className="kpi-card" style={{ borderLeft: '3px solid var(--text-muted)' }}>
+          <span className="kpi-label">Répartition niveaux</span>
+          {kpis.totalNiveaux > 0 ? (
+            <>
+              <div style={{
+                display: 'flex', height: 10, borderRadius: 5, overflow: 'hidden',
+                marginTop: 6, marginBottom: 4
+              }}>
+                {Object.entries(kpis.niveaux).map(([niveau, count]) => {
+                  if (count === 0) return null;
+                  return (
+                    <div key={niveau} style={{
+                      width: `${(count / kpis.totalNiveaux) * 100}%`,
+                      background: NIVEAU_COLORS[niveau],
+                      transition: 'width 0.3s',
+                    }} />
+                  );
+                })}
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 8px' }}>
+                {Object.entries(kpis.niveaux).map(([niveau, count]) => (
+                  count > 0 && (
+                    <span key={niveau} style={{ fontSize: '0.65rem', color: NIVEAU_COLORS[niveau], fontWeight: 500 }}>
+                      {niveau} {Math.round((count / kpis.totalNiveaux) * 100)}%
+                    </span>
+                  )
+                ))}
+              </div>
+            </>
+          ) : (
+            <span className="kpi-sub">Aucune donnée</span>
+          )}
+        </div>
+      </div>
+
       <div className="session-list">
         {filtered.map((s) => {
           const type = getSessionType(s);
