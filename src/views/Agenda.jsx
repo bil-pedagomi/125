@@ -9,29 +9,39 @@ import useIsMobile from '../hooks/useIsMobile';
 const PRICE = 199;
 const DAY_NAMES = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
 
-function getMonday(d) {
-  const date = new Date(d);
-  const day = date.getDay();
-  const diff = day === 0 ? -6 : 1 - day;
-  date.setDate(date.getDate() + diff);
-  date.setHours(0, 0, 0, 0);
-  return date;
-}
-
-function formatWeekLabel(monday) {
-  const sunday = new Date(monday);
-  sunday.setDate(monday.getDate() + 6);
-  const mNames = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
-  const d1 = monday.getDate();
-  const d2 = sunday.getDate();
-  if (monday.getMonth() === sunday.getMonth()) {
-    return `Semaine du ${d1} au ${d2} ${mNames[monday.getMonth()]} ${monday.getFullYear()}`;
-  }
-  return `Semaine du ${d1} ${mNames[monday.getMonth()]} au ${d2} ${mNames[sunday.getMonth()]} ${sunday.getFullYear()}`;
-}
-
 function toDateKey(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function buildMonthGrid(yearMonth) {
+  const [y, m] = yearMonth.split('-').map(Number);
+  const firstDay = new Date(y, m - 1, 1);
+  const lastDay = new Date(y, m, 0);
+
+  // Monday-based day of week (0=Mon, 6=Sun)
+  let startDow = firstDay.getDay() - 1;
+  if (startDow < 0) startDow = 6;
+
+  const days = [];
+
+  // Days from previous month to fill first week
+  for (let i = startDow - 1; i >= 0; i--) {
+    const d = new Date(y, m - 1, -i);
+    days.push({ date: d, inMonth: false });
+  }
+
+  // Days of current month
+  for (let i = 1; i <= lastDay.getDate(); i++) {
+    days.push({ date: new Date(y, m - 1, i), inMonth: true });
+  }
+
+  // Days from next month to fill last week
+  while (days.length % 7 !== 0) {
+    const next = days.length - startDow - lastDay.getDate() + 1;
+    days.push({ date: new Date(y, m, next), inMonth: false });
+  }
+
+  return days;
 }
 
 function Agenda({ data }) {
@@ -40,7 +50,6 @@ function Agenda({ data }) {
   const isMobile = useIsMobile();
   const now = new Date();
   const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-  const [weekStart, setWeekStart] = useState(() => getMonday(now));
   const [monthFilter, setMonthFilter] = useState(currentMonth);
   const [typeFilter, setTypeFilter] = useState('all');
   const [expandedId, setExpandedId] = useState(null);
@@ -58,12 +67,12 @@ function Agenda({ data }) {
     const idx = months.indexOf(monthFilter);
     if (direction === -1 && idx > 0) setMonthFilter(months[idx - 1]);
     else if (direction === 1 && idx < months.length - 1) setMonthFilter(months[idx + 1]);
+    setExpandedId(null);
   };
 
   const canGoPrev = months.indexOf(monthFilter) > 0;
   const canGoNext = months.indexOf(monthFilter) < months.length - 1 && months.indexOf(monthFilter) !== -1;
 
-  // Sessions filtered by month + type (for KPIs and mobile list)
   const filtered = useMemo(() => {
     return sessions.filter(s => {
       if (monthFilter !== 'all') {
@@ -71,14 +80,12 @@ function Agenda({ data }) {
         if (mk !== monthFilter) return false;
       }
       if (typeFilter !== 'all') {
-        const type = getSessionType(s);
-        if (type !== typeFilter) return false;
+        if (getSessionType(s) !== typeFilter) return false;
       }
       return true;
     });
   }, [sessions, monthFilter, typeFilter]);
 
-  // Sessions indexed by date key for calendar view
   const sessionsByDate = useMemo(() => {
     const map = {};
     sessions.forEach(s => {
@@ -91,34 +98,13 @@ function Agenda({ data }) {
     return map;
   }, [sessions, typeFilter]);
 
-  // Week days array
-  const weekDays = useMemo(() => {
-    const days = [];
-    for (let i = 0; i < 7; i++) {
-      const d = new Date(weekStart);
-      d.setDate(weekStart.getDate() + i);
-      days.push(d);
-    }
-    return days;
-  }, [weekStart]);
-
-  const goWeek = (dir) => {
-    setWeekStart(prev => {
-      const next = new Date(prev);
-      next.setDate(prev.getDate() + dir * 7);
-      return next;
-    });
-    setExpandedId(null);
-  };
-
-  const goToday = () => {
-    setWeekStart(getMonday(new Date()));
-    setExpandedId(null);
-  };
+  const monthGrid = useMemo(() => {
+    if (monthFilter === 'all') return [];
+    return buildMonthGrid(monthFilter);
+  }, [monthFilter]);
 
   const todayKey = toDateKey(now);
 
-  // KPIs from filtered sessions
   const kpis = useMemo(() => {
     const allInvitees = filtered.flatMap(s => s.invitees || []);
     const totalEleves = filtered.reduce((sum, s) => sum + ((s.invitees || []).length || s.nb_invitees || 0), 0);
@@ -151,7 +137,6 @@ function Agenda({ data }) {
 
   const NIVEAU_COLORS = { 'Débutant': '#F87171', 'Intermédiaire': '#FBBF24', 'Avancé': '#60A5FA', 'Expert': '#34D399' };
 
-  // Find expanded session for detail panel
   const expandedSession = expandedId ? sessions.find(s => s.id === expandedId) : null;
 
   const renderSessionDetail = (s) => {
@@ -167,6 +152,9 @@ function Agenda({ data }) {
 
     return (
       <div className="session-detail-panel" style={{ marginTop: 8, borderRadius: 10 }}>
+        <div style={{ fontSize: 13, color: 'var(--accent-light)', fontWeight: 600, marginBottom: 8 }}>
+          {formatDateShort(s.start_time)} — {s.event_type_name || 'Formation 125'}
+        </div>
         <div className="session-detail-summary">
           <div className="session-detail-stat">
             <Users size={14} />
@@ -234,7 +222,6 @@ function Agenda({ data }) {
     );
   };
 
-  // Mobile list view for a session row
   const renderMobileSession = (s) => {
     const type = getSessionType(s);
     const invitees = s.invitees || [];
@@ -270,13 +257,13 @@ function Agenda({ data }) {
 
   return (
     <div>
-      {/* Filters bar — month + type */}
+      {/* Filters bar */}
       <div className="filters-bar">
         <CalendarDays size={16} style={{ color: 'var(--accent)' }} />
         <button className="month-nav-btn" onClick={() => goMonth(-1)} disabled={!canGoPrev} aria-label="Mois précédent">
           <ChevronLeft size={16} />
         </button>
-        <select className="filter-select" value={monthFilter} onChange={e => setMonthFilter(e.target.value)}>
+        <select className="filter-select" value={monthFilter} onChange={e => { setMonthFilter(e.target.value); setExpandedId(null); }}>
           <option value="all">Tous les mois</option>
           {months.map(m => (
             <option key={m} value={m}>{getMonthLabel(m)}</option>
@@ -382,75 +369,101 @@ function Agenda({ data }) {
         </div>
       </div>
 
-      {/* DESKTOP: Weekly calendar view */}
-      {!isMobile && (
+      {/* DESKTOP: Month calendar view */}
+      {!isMobile && monthFilter !== 'all' && (
         <>
-          {/* Week navigation */}
-          <div className="week-nav">
-            <button className="month-nav-btn" onClick={() => goWeek(-1)} aria-label="Semaine précédente">
-              <ChevronLeft size={16} />
-            </button>
-            <span className="week-label">{formatWeekLabel(weekStart)}</span>
-            <button className="month-nav-btn" onClick={() => goWeek(1)} aria-label="Semaine suivante">
-              <ChevronRight size={16} />
-            </button>
-            <button className="week-today-btn" onClick={goToday}>Aujourd'hui</button>
-          </div>
-
-          {/* Calendar grid */}
-          <div className="week-grid">
-            {weekDays.map((day, i) => {
-              const key = toDateKey(day);
+          <div className="cal-grid">
+            {/* Header row */}
+            {DAY_NAMES.map(d => (
+              <div key={d} className="cal-header">{d}</div>
+            ))}
+            {/* Day cells */}
+            {monthGrid.map(({ date, inMonth }, idx) => {
+              const key = toDateKey(date);
               const daySessions = sessionsByDate[key] || [];
               const isToday = key === todayKey;
-              const isWeekend = i >= 5;
+              const dow = idx % 7;
+              const isWeekend = dow >= 5;
 
               return (
                 <div
-                  key={key}
-                  className={`week-cell${isToday ? ' week-cell-today' : ''}${isWeekend ? ' week-cell-weekend' : ''}`}
+                  key={idx}
+                  className={`cal-cell${isToday ? ' cal-cell-today' : ''}${!inMonth ? ' cal-cell-outside' : ''}${isWeekend ? ' cal-cell-weekend' : ''}`}
                 >
-                  <div className="week-cell-header">
-                    <span className="week-day-name">{DAY_NAMES[i]}</span>
-                    <span className={`week-day-num${isToday ? ' today' : ''}`}>{day.getDate()}</span>
-                  </div>
-                  <div className="week-cell-body">
-                    {daySessions.length === 0 && (
-                      <div className="week-cell-empty" />
-                    )}
-                    {daySessions.map(s => {
-                      const type = getSessionType(s);
-                      const invitees = s.invitees || [];
-                      const nbEleves = invitees.length || s.nb_invitees || 0;
-                      const ca = nbEleves * PRICE;
-                      const isActive = expandedId === s.id;
-                      return (
-                        <div
-                          key={s.id}
-                          className={`week-session-card${isActive ? ' active' : ''}`}
-                          onClick={() => toggleExpand(s.id)}
-                        >
-                          <span className={`badge ${type}`} style={{ fontSize: '0.6rem' }}>
-                            {type === 'we' ? 'WE' : 'SEM'}
-                          </span>
-                          <span className="week-session-info">
-                            {nbEleves} élève{nbEleves > 1 ? 's' : ''} · {ca.toLocaleString('fr-FR')}€
-                          </span>
-                        </div>
-                      );
-                    })}
-                  </div>
+                  <span className={`cal-day-num${isToday ? ' today' : ''}`}>
+                    {date.getDate()}
+                  </span>
+                  {daySessions.map(s => {
+                    const type = getSessionType(s);
+                    const invitees = s.invitees || [];
+                    const nbEleves = invitees.length || s.nb_invitees || 0;
+                    const ca = nbEleves * PRICE;
+                    const isActive = expandedId === s.id;
+                    return (
+                      <div
+                        key={s.id}
+                        className={`cal-session${isActive ? ' active' : ''}`}
+                        onClick={() => toggleExpand(s.id)}
+                      >
+                        <span className={`badge ${type}`} style={{ fontSize: '0.55rem', padding: '1px 5px' }}>
+                          {type === 'we' ? 'WE' : 'SEM'}
+                        </span>
+                        <span className="cal-session-text">
+                          {nbEleves} él. · {ca.toLocaleString('fr-FR')}€
+                        </span>
+                      </div>
+                    );
+                  })}
                 </div>
               );
             })}
           </div>
 
-          {/* Expanded detail panel below calendar */}
           {expandedSession && renderSessionDetail(expandedSession)}
         </>
       )}
 
-      {/* MOBILE: List view (like before) */}
+      {/* Desktop fallback when "all months" selected — show list */}
+      {!isMobile && monthFilter === 'all' && (
+        <div className="session-list">
+          {filtered.map(s => {
+            const type = getSessionType(s);
+            const invitees = s.invitees || [];
+            const nbEleves = invitees.length || s.nb_invitees || 0;
+            const ca = nbEleves * PRICE;
+            const isExpanded = expandedId === s.id;
+            return (
+              <div key={s.id}>
+                <div className="session-row" style={{ cursor: 'pointer' }} onClick={() => toggleExpand(s.id)}>
+                  <span className="session-date">{formatDateShort(s.start_time)}</span>
+                  <span className="session-type">
+                    <span className={`badge ${type}`}>{type === 'we' ? 'WE' : 'SEM'}</span>
+                  </span>
+                  <span style={{ color: 'var(--text-secondary)', fontSize: '0.8125rem' }}>
+                    {s.event_type_name || 'Formation 125'}
+                  </span>
+                  <span className="session-eleves">{nbEleves} élève{nbEleves > 1 ? 's' : ''}</span>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <span className="session-ca">{ca.toLocaleString('fr-FR')} €</span>
+                    {isExpanded
+                      ? <ChevronUp size={14} style={{ color: 'var(--text-muted)' }} />
+                      : <ChevronDown size={14} style={{ color: 'var(--text-muted)' }} />
+                    }
+                  </span>
+                </div>
+                {isExpanded && renderSessionDetail(s)}
+              </div>
+            );
+          })}
+          {filtered.length === 0 && (
+            <p className="empty-state" style={{ padding: '2rem', textAlign: 'center' }}>
+              Aucune session trouvée
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* MOBILE: List view */}
       {isMobile && (
         <div className="session-list">
           {filtered.map(s => renderMobileSession(s))}
