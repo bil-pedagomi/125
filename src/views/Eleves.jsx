@@ -326,7 +326,7 @@ function Eleves({ data }) {
                 <span className="er-photo">
                   <Avatar name={e.name} photoUrl={e.photo_identite} size={isExpanded ? 80 : 40} style={{ transition: 'all 0.3s ease', flexShrink: 0 }} />
                 </span>
-                <span className="er-name">{e.name || '—'}</span>
+                <span className="er-name" style={{ fontSize: isExpanded ? 18 : 14, fontWeight: 700, transition: 'font-size 0.3s ease' }}>{e.name || '—'}</span>
                 <span className="er-email">{e.email || '—'}</span>
                 <span className="er-date">{formatDate(session?.start_time)}</span>
                 <span className="er-form">
