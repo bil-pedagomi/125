@@ -10,6 +10,74 @@ const NIVEAU_BADGE = {
   'Expert': { bg: 'rgba(16,185,129,0.15)', color: '#10b981' },
 };
 
+const ELEVES_CSS = `
+.eleve-row {
+  display: grid;
+  grid-template-columns: 40px 180px 1fr 100px 80px 200px 80px;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border);
+  transition: background 0.15s;
+}
+.eleve-row:hover { background: rgba(108,99,255,0.06); }
+.eleve-row .er-photo { flex-shrink: 0; }
+.eleve-row .er-name { font-weight: 500; font-size: 13px; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.eleve-row .er-email { font-size: 11px; color: #64748b; font-family: var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.eleve-row .er-date { font-size: 12px; color: #94a3b8; font-family: var(--font-mono); }
+.eleve-row .er-form { }
+.eleve-row .er-niveau { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 200px; }
+.eleve-row .er-appels { font-size: 12px; font-family: var(--font-mono); }
+.eleve-row .er-mobile-l1 { display: none; }
+.eleve-row .er-mobile-l2 { display: none; }
+
+.eleve-detail-grid {
+  display: grid;
+  grid-template-columns: 250px 1fr 300px;
+  gap: 24px;
+}
+
+@media (max-width: 1023px) and (min-width: 768px) {
+  .eleve-row {
+    grid-template-columns: 40px 1fr 1fr 80px 80px;
+  }
+  .eleve-row .er-niveau { display: none; }
+  .eleve-row .er-date { display: none; }
+}
+
+@media (max-width: 767px) {
+  .eleve-row {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 12px 16px;
+  }
+  .eleve-row .er-photo,
+  .eleve-row .er-name,
+  .eleve-row .er-email,
+  .eleve-row .er-date,
+  .eleve-row .er-form,
+  .eleve-row .er-niveau,
+  .eleve-row .er-appels { display: none; }
+  .eleve-row .er-mobile-l1 {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+  }
+  .eleve-row .er-mobile-l2 {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding-left: 40px;
+  }
+  .eleve-detail-grid {
+    grid-template-columns: 1fr;
+  }
+}
+`;
+
 function EleveExpandedPanel({ eleve }) {
   const niveauStyle = NIVEAU_BADGE[eleve.niveau_scooter] || { bg: 'rgba(107,113,148,0.15)', color: '#64748b' };
   const appels = eleve.resumes_appels || [];
@@ -35,20 +103,10 @@ function EleveExpandedPanel({ eleve }) {
       maxHeight: 500,
       overflowY: 'auto',
     }}>
-      <div style={{ display: 'grid', gridTemplateColumns: '250px 1fr 300px', gap: 24 }}>
+      <div className="eleve-detail-grid">
         {/* COLONNE 1 — Identité */}
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
-          {eleve.photo_identite ? (
-            <img
-              src={eleve.photo_identite}
-              alt={eleve.name}
-              style={{ width: 80, height: 80, borderRadius: '50%', objectFit: 'cover', border: '2px solid #334155' }}
-              onError={(e) => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'flex'; }}
-            />
-          ) : null}
-          {!eleve.photo_identite && <Avatar name={eleve.name} size={80} />}
-          {eleve.photo_identite && <div style={{ display: 'none' }}><Avatar name={eleve.name} size={80} /></div>}
-
+          <Avatar name={eleve.name} photoUrl={eleve.photo_identite} size={80} />
           <div style={{ fontSize: 16, fontWeight: 700, color: '#f1f5f9', textAlign: 'center' }}>{eleve.name || '—'}</div>
           <div style={{ fontSize: 11, color: '#64748b', fontFamily: 'monospace', wordBreak: 'break-all', textAlign: 'center' }}>{eleve.email || '—'}</div>
           {eleve.phone && <div style={{ fontSize: 13, color: '#94a3b8' }}>{eleve.phone}</div>}
@@ -101,7 +159,6 @@ function EleveExpandedPanel({ eleve }) {
                 <span style={{
                   fontSize: 12, fontWeight: 600, padding: '2px 10px', borderRadius: 6,
                   background: niveauStyle.bg, color: niveauStyle.color,
-                  textAlign: 'right',
                 }}>
                   {eleve.niveau_scooter || 'Non renseigné'}
                 </span>
@@ -225,6 +282,7 @@ function Eleves({ data }) {
 
   return (
     <div>
+      <style>{ELEVES_CSS}</style>
       <div className="filters-bar">
         <div style={{ position: 'relative' }}>
           <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
@@ -259,24 +317,35 @@ function Eleves({ data }) {
           const isExpanded = expandedId === key;
           return (
             <div key={key}>
-              <div
-                className="session-row"
-                style={{ cursor: 'pointer' }}
-                onClick={() => toggleExpand(key)}
-              >
-                <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 500, minWidth: 180 }}>
-                  <Avatar name={e.name} photoUrl={e.photo_identite} size={32} />
-                  {e.name || '—'}
+              <div className="eleve-row" onClick={() => toggleExpand(key)}>
+                {/* Desktop cells */}
+                <span className="er-photo"><Avatar name={e.name} photoUrl={e.photo_identite} size={32} /></span>
+                <span className="er-name">{e.name || '—'}</span>
+                <span className="er-email">{e.email || '—'}</span>
+                <span className="er-date">{formatDate(session?.start_time)}</span>
+                <span className="er-form">
+                  {e.form_rempli
+                    ? <span className="invitee-badge green">Form OK</span>
+                    : <span className="invitee-badge orange">Manquant</span>}
                 </span>
-                <span className="mono" style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', minWidth: 180 }}>{e.email || '—'}</span>
-                <span className="mono" style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', minWidth: 90 }}>{formatDate(session?.start_time)}</span>
-                <span style={{ minWidth: 50 }}>
-                  {e.form_rempli ? <span className="invitee-badge green">Form OK</span> : <span className="invitee-badge orange">Manquant</span>}
-                </span>
-                <span style={{ minWidth: 80, fontSize: '0.8rem' }}>{e.niveau_scooter || '—'}</span>
-                <span className="mono" style={{ fontSize: '0.8rem', color: e.a_appele ? 'var(--red)' : 'var(--text-muted)', minWidth: 50 }}>
+                <span className="er-niveau">{e.niveau_scooter || '—'}</span>
+                <span className="er-appels" style={{ color: e.a_appele ? '#ef4444' : '#64748b' }}>
                   {e.nb_appels || 0} appel{(e.nb_appels || 0) > 1 ? 's' : ''}
                 </span>
+                {/* Mobile layout */}
+                <div className="er-mobile-l1">
+                  <Avatar name={e.name} photoUrl={e.photo_identite} size={32} />
+                  <span style={{ fontWeight: 600, fontSize: 13, color: '#f1f5f9', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.name || '—'}</span>
+                  {e.form_rempli
+                    ? <span className="invitee-badge green">Form OK</span>
+                    : <span className="invitee-badge orange">Manquant</span>}
+                </div>
+                <div className="er-mobile-l2">
+                  <span style={{ fontSize: 11, color: '#64748b', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{e.email || '—'}</span>
+                  <span style={{ fontSize: 11, color: e.a_appele ? '#ef4444' : '#64748b', flexShrink: 0 }}>
+                    {e.nb_appels || 0} appel{(e.nb_appels || 0) > 1 ? 's' : ''}
+                  </span>
+                </div>
               </div>
               {isExpanded && <EleveExpandedPanel eleve={e} />}
             </div>
