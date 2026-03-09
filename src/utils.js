@@ -51,15 +51,25 @@ export function isWeekend(dateStr) {
   return day === 0 || day === 6;
 }
 
+export function getSessionType(session) {
+  const name = (session.event_type_name || '').toLowerCase();
+  if (name.includes('semaine')) return 'sem';
+  return 'we';
+}
+
+const PRICE = 199;
+
 export function consolidateData(raw) {
   const { sessions = [], invitees = [], formulaires = [], appels = [], resumes_appels = [], emails = [], kpis = {} } = raw;
 
+  // --- Index formulaires by email (field is "Votre email" or "email_normalise") ---
   const formByEmail = {};
   formulaires.forEach(f => {
-    const key = normalizeEmail(f.email);
+    const key = normalizeEmail(f['Votre email'] || f.email_normalise || f.email);
     if (key) formByEmail[key] = f;
   });
 
+  // --- Index appels by email (v_125_appels has: email, tel_norm, a_appele, nb_appels) ---
   const appelsByEmail = {};
   appels.forEach(a => {
     const key = normalizeEmail(a.email);
@@ -68,29 +78,50 @@ export function consolidateData(raw) {
     appelsByEmail[key].push(a);
   });
 
+  // --- Index resumes_appels by normalized phone (field: telephone) ---
   const resumesByPhone = {};
   resumes_appels.forEach(r => {
-    const key = normalizePhone(r.telephone || r.phone || r.numero);
+    const key = normalizePhone(r.telephone);
     if (!key) return;
     if (!resumesByPhone[key]) resumesByPhone[key] = [];
     resumesByPhone[key].push(r);
   });
 
+  // --- Index emails by sender (field: email_expediteur) ---
   const emailsByEmail = {};
   emails.forEach(e => {
-    const key = normalizeEmail(e.from || e.expediteur || e.email);
+    const key = normalizeEmail(e.email_expediteur);
     if (!key) return;
     if (!emailsByEmail[key]) emailsByEmail[key] = [];
     emailsByEmail[key].push(e);
   });
 
+  // --- Enrich invitees with cross-referenced data ---
   const enrichedInvitees = invitees.map(inv => {
     const email = normalizeEmail(inv.email);
     const form = formByEmail[email];
-    const invAppels = appelsByEmail[email] || [];
-    const phone = normalizePhone(inv.phone || inv.telephone || (form && (form.phone || form.telephone)));
-    const invResumes = resumesByPhone[phone] || [];
+    const appelsForInv = appelsByEmail[email] || [];
+    const aAppele = appelsForInv.some(a => a.a_appele);
+    const nbAppels = appelsForInv.reduce((sum, a) => sum + (a.nb_appels || 0), 0);
+    const phone = normalizePhone(inv.phone || (form && form.tel_norm));
+    const invResumes = phone ? (resumesByPhone[phone] || []) : [];
     const invEmails = emailsByEmail[email] || [];
+
+    // Niveau scooter from formulaire or from invitee questions_and_answers
+    let niveauScooter = '—';
+    if (form) {
+      niveauScooter = form['Avez-vous déjà conduit un scooter ?'] ||
+        form['Comment évalueriez-vous votre niveau de conduite de scooter ?'] || '—';
+    }
+    if (niveauScooter === '—' && inv.questions_and_answers) {
+      const niveauQ = inv.questions_and_answers.find(q =>
+        (q.question || '').toLowerCase().includes('niveau')
+      );
+      if (niveauQ) niveauScooter = niveauQ.answer;
+    }
+
+    // Source from formulaire
+    const source = form ? (form['Comment nous avez-vous trouvé ?'] || '—') : '—';
 
     return {
       ...inv,
@@ -98,33 +129,36 @@ export function consolidateData(raw) {
       phoneNorm: phone,
       formulaire: form || null,
       formulaireRempli: !!form,
-      niveauScooter: form?.niveau_scooter || form?.niveau || form?.experience || '—',
-      source: form?.source || inv.source || form?.utm_source || '—',
-      appels: invAppels,
-      nbAppels: invAppels.length,
+      niveauScooter,
+      source,
+      appelsData: appelsForInv,
+      aAppele,
+      nbAppels,
       resumesAppels: invResumes,
       emails: invEmails,
       nbEmails: invEmails.length,
     };
   });
 
+  // --- Build session map keyed by session id (int) ---
   const sessionMap = {};
   sessions.forEach(s => {
-    const key = s.id || s.uri || s.start_time;
-    sessionMap[key] = { ...s, invitees: [] };
+    sessionMap[s.id] = { ...s, invitees: [] };
   });
 
+  // --- Link invitees to sessions via calendly_event_id ---
   enrichedInvitees.forEach(inv => {
-    const sKey = inv.event_id || inv.session_id || inv.uri;
+    const sKey = inv.calendly_event_id;
     if (sKey && sessionMap[sKey]) {
       sessionMap[sKey].invitees.push(inv);
     }
   });
 
   const enrichedSessions = Object.values(sessionMap).sort((a, b) =>
-    new Date(a.start_time || a.date) - new Date(b.start_time || b.date)
+    new Date(a.start_time) - new Date(b.start_time)
   );
 
+  // --- Motifs from resumes_appels ---
   const allMotifs = [];
   resumes_appels.forEach(r => {
     if (r.motifs) {
@@ -134,7 +168,6 @@ export function consolidateData(raw) {
         allMotifs.push(r.motifs);
       }
     }
-    if (r.motif) allMotifs.push(r.motif);
   });
 
   const motifCounts = {};

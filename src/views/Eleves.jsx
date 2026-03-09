@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
-import { Search, X, User, Phone, Mail, FileText, Calendar, MapPin } from 'lucide-react';
-import { formatDate, getMonthKey, getMonthLabel, isWeekend } from '../utils';
+import { Search, X, User, Phone, Mail, FileText, Calendar } from 'lucide-react';
+import { formatDate, getMonthKey, getMonthLabel, getSessionType } from '../utils';
 
 function Eleves({ data }) {
   const { eleves, sessions } = data;
@@ -12,42 +12,46 @@ function Eleves({ data }) {
   const months = useMemo(() => {
     const set = new Set();
     sessions.forEach(s => {
-      const mk = getMonthKey(s.start_time || s.date);
+      const mk = getMonthKey(s.start_time);
       if (mk) set.add(mk);
     });
     return [...set].sort();
   }, [sessions]);
 
+  // Build a map: invitee calendly_event_id -> session
+  const sessionByEventId = useMemo(() => {
+    const map = {};
+    sessions.forEach(s => { map[s.id] = s; });
+    return map;
+  }, [sessions]);
+
   const getEleveSession = (eleve) => {
-    return sessions.find(s =>
-      s.invitees?.some(i => i.emailNorm === eleve.emailNorm)
-    );
+    return sessionByEventId[eleve.calendly_event_id] || null;
   };
 
   const filtered = useMemo(() => {
     return eleves.filter(e => {
       if (search) {
         const q = search.toLowerCase();
-        const name = (e.name || e.nom || '').toLowerCase();
+        const name = (e.name || '').toLowerCase();
         const email = (e.email || '').toLowerCase();
         if (!name.includes(q) && !email.includes(q)) return false;
       }
       if (monthFilter !== 'all' || typeFilter !== 'all') {
         const session = getEleveSession(e);
-        const dateStr = session?.start_time || session?.date;
         if (monthFilter !== 'all') {
-          const mk = getMonthKey(dateStr);
+          const mk = getMonthKey(session?.start_time);
           if (mk !== monthFilter) return false;
         }
         if (typeFilter !== 'all') {
-          const we = isWeekend(dateStr);
-          if (typeFilter === 'we' && !we) return false;
-          if (typeFilter === 'sem' && we) return false;
+          if (!session) return false;
+          const type = getSessionType(session);
+          if (type !== typeFilter) return false;
         }
       }
       return true;
     });
-  }, [eleves, search, monthFilter, typeFilter, sessions]);
+  }, [eleves, search, monthFilter, typeFilter, sessionByEventId]);
 
   const selectedEleve = selected;
   const selectedSession = selectedEleve ? getEleveSession(selectedEleve) : null;
@@ -97,15 +101,14 @@ function Eleves({ data }) {
           <tbody>
             {filtered.map((e, i) => {
               const session = getEleveSession(e);
-              const dateStr = session?.start_time || session?.date;
               return (
                 <tr key={i} onClick={() => setSelected(e)}>
-                  <td style={{ fontWeight: 500 }}>{e.name || e.nom || '—'}</td>
+                  <td style={{ fontWeight: 500 }}>{e.name || '—'}</td>
                   <td className="mono">{e.email || '—'}</td>
-                  <td className="mono">{formatDate(dateStr)}</td>
+                  <td className="mono">{formatDate(session?.start_time)}</td>
                   <td>{e.formulaireRempli ? <span className="status-yes">Oui</span> : <span className="status-no">Non</span>}</td>
                   <td>{e.niveauScooter}</td>
-                  <td className="mono" style={{ color: e.nbAppels > 0 ? 'var(--red)' : 'var(--text-muted)' }}>{e.nbAppels}</td>
+                  <td className="mono" style={{ color: e.aAppele ? 'var(--red)' : 'var(--text-muted)' }}>{e.nbAppels}</td>
                   <td className="mono" style={{ color: e.nbEmails > 0 ? 'var(--orange)' : 'var(--text-muted)' }}>{e.nbEmails}</td>
                 </tr>
               );
@@ -123,7 +126,7 @@ function Eleves({ data }) {
         <div className="detail-overlay" onClick={() => setSelected(null)}>
           <div className="detail-panel" onClick={e => e.stopPropagation()}>
             <div className="detail-header">
-              <h2>{selectedEleve.name || selectedEleve.nom || selectedEleve.email}</h2>
+              <h2>{selectedEleve.name || selectedEleve.email}</h2>
               <button className="detail-close" onClick={() => setSelected(null)}>
                 <X size={20} />
               </button>
@@ -138,7 +141,7 @@ function Eleves({ data }) {
                 </div>
                 <div className="detail-field">
                   <div className="label">Téléphone</div>
-                  <div className="value">{selectedEleve.phone || selectedEleve.telephone || '—'}</div>
+                  <div className="value">{selectedEleve.phone || '—'}</div>
                 </div>
                 <div className="detail-field">
                   <div className="label">Niveau scooter</div>
@@ -148,16 +151,24 @@ function Eleves({ data }) {
                   <div className="label">Source</div>
                   <div className="value">{selectedEleve.source}</div>
                 </div>
+                <div className="detail-field">
+                  <div className="label">Statut</div>
+                  <div className="value">{selectedEleve.status || '—'}</div>
+                </div>
+                <div className="detail-field">
+                  <div className="label">Paiement</div>
+                  <div className="value">{selectedEleve.payment_amount ? `${selectedEleve.payment_amount} €` : '—'}</div>
+                </div>
               </div>
             </div>
 
             <div className="detail-section">
-              <h3><Calendar size={14} /> Sessions</h3>
+              <h3><Calendar size={14} /> Session</h3>
               {selectedSession ? (
                 <div className="detail-item">
-                  <div className="detail-item-date">{formatDate(selectedSession.start_time || selectedSession.date)}</div>
-                  {selectedSession.name || selectedSession.event_type || 'Formation 125'}
-                  {' — '}{isWeekend(selectedSession.start_time || selectedSession.date) ? 'Weekend' : 'Semaine'}
+                  <div className="detail-item-date">{formatDate(selectedSession.start_time)}</div>
+                  {selectedSession.event_type_name || 'Formation 125'}
+                  {' — '}{getSessionType(selectedSession) === 'we' ? 'Weekend' : 'Semaine'}
                 </div>
               ) : (
                 <p className="empty-state">Aucune session</p>
@@ -169,8 +180,23 @@ function Eleves({ data }) {
               {selectedEleve.resumesAppels.length > 0 ? (
                 selectedEleve.resumesAppels.map((r, i) => (
                   <div key={i} className="detail-item">
-                    <div className="detail-item-date">{formatDate(r.date || r.created_at)}</div>
-                    {r.resume || r.summary || r.motif || r.motifs?.join(', ') || 'Pas de résumé'}
+                    <div className="detail-item-date">{formatDate(r.date_appel)}</div>
+                    <div><strong>{r.type_appel || 'Appel'}</strong> — {r.duree_secondes ? `${Math.round(r.duree_secondes / 60)} min` : ''}</div>
+                    <div style={{ marginTop: 4 }}>{r.resume || 'Pas de résumé'}</div>
+                    {r.motifs && Array.isArray(r.motifs) && r.motifs.length > 0 && (
+                      <div style={{ marginTop: 4, display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                        {r.motifs.map((m, j) => (
+                          <span key={j} style={{
+                            background: 'rgba(108, 99, 255, 0.15)',
+                            color: 'var(--accent-light)',
+                            padding: '2px 8px',
+                            borderRadius: 6,
+                            fontSize: '0.7rem',
+                            fontWeight: 500
+                          }}>{m}</span>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 ))
               ) : (
@@ -183,13 +209,18 @@ function Eleves({ data }) {
               {selectedEleve.emails.length > 0 ? (
                 selectedEleve.emails.map((em, i) => (
                   <div key={i} className="detail-item">
-                    <div className="detail-item-date">{formatDate(em.date || em.created_at)}</div>
-                    <strong>{em.subject || em.objet || 'Sans objet'}</strong>
-                    {em.body_preview || em.preview ? (
+                    <div className="detail-item-date">{formatDate(em.date_reception)}</div>
+                    <strong>{em.sujet || 'Sans objet'}</strong>
+                    {em.body_extrait && (
                       <div style={{ marginTop: 4, color: 'var(--text-muted)', fontSize: '0.75rem' }}>
-                        {em.body_preview || em.preview}
+                        {em.body_extrait}
                       </div>
-                    ) : null}
+                    )}
+                    {em.categorie && (
+                      <div style={{ marginTop: 4, fontSize: '0.7rem', color: 'var(--accent-light)' }}>
+                        {em.categorie}{em.sous_categorie ? ` → ${em.sous_categorie}` : ''}
+                      </div>
+                    )}
                   </div>
                 ))
               ) : (
@@ -199,11 +230,32 @@ function Eleves({ data }) {
 
             {selectedEleve.formulaire && (
               <div className="detail-section">
-                <h3><FileText size={14} /> Formulaire</h3>
-                <div className="detail-item">
-                  <pre style={{ fontFamily: 'var(--font-mono)', fontSize: '0.75rem', whiteSpace: 'pre-wrap', color: 'var(--text-secondary)' }}>
-                    {JSON.stringify(selectedEleve.formulaire, null, 2)}
-                  </pre>
+                <h3><FileText size={14} /> Formulaire pré-formation</h3>
+                <div className="detail-grid">
+                  {selectedEleve.formulaire['Votre Nom & Prénom'] && (
+                    <div className="detail-field">
+                      <div className="label">Nom</div>
+                      <div className="value">{selectedEleve.formulaire['Votre Nom & Prénom']}</div>
+                    </div>
+                  )}
+                  {selectedEleve.formulaire['Date d\'obtention du Permis B'] && (
+                    <div className="detail-field">
+                      <div className="label">Permis B obtenu</div>
+                      <div className="value">{selectedEleve.formulaire['Date d\'obtention du Permis B']}</div>
+                    </div>
+                  )}
+                  {selectedEleve.formulaire['Avez-vous déjà conduit un scooter ?'] && (
+                    <div className="detail-field">
+                      <div className="label">Conduit un scooter ?</div>
+                      <div className="value">{selectedEleve.formulaire['Avez-vous déjà conduit un scooter ?']}</div>
+                    </div>
+                  )}
+                  {selectedEleve.formulaire['Comment nous avez-vous trouvé ?'] && (
+                    <div className="detail-field">
+                      <div className="label">Source</div>
+                      <div className="value">{selectedEleve.formulaire['Comment nous avez-vous trouvé ?']}</div>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -212,13 +264,6 @@ function Eleves({ data }) {
       )}
     </div>
   );
-}
-
-function isWeekendLocal(dateStr) {
-  if (!dateStr) return false;
-  const d = new Date(dateStr);
-  const day = d.getDay();
-  return day === 0 || day === 6;
 }
 
 export default Eleves;

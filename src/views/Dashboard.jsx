@@ -1,40 +1,38 @@
 import { useMemo } from 'react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { Users, Euro, FileCheck, Phone, PhoneCall, Mail, AlertTriangle, MessageSquare } from 'lucide-react';
-import { getMonthKey, getMonthLabel, formatDate } from '../utils';
+import { getMonthKey, getMonthLabel } from '../utils';
 
 const PRICE = 199;
 
 function Dashboard({ data }) {
-  const { eleves, sessions, motifs } = data;
+  const { eleves, sessions, motifs, kpis } = data;
 
   const totalEleves = eleves.length;
   const caEstime = totalEleves * PRICE;
   const nbFormRempli = eleves.filter(e => e.formulaireRempli).length;
   const pctForm = totalEleves > 0 ? Math.round((nbFormRempli / totalEleves) * 100) : 0;
-  const nbAppele = eleves.filter(e => e.nbAppels > 0).length;
-  const tauxAppel = totalEleves > 0 ? Math.round((nbAppele / totalEleves) * 100) : 0;
+  const nbAppele = eleves.filter(e => e.aAppele).length;
+  const tauxAppel = kpis.taux_appel ?? (totalEleves > 0 ? Math.round((nbAppele / totalEleves) * 100) : 0);
   const nbEmailRecus = eleves.filter(e => e.nbEmails > 0).length;
 
+  // Chart: élèves per month based on session start_time
   const chartData = useMemo(() => {
     const months = {};
-    eleves.forEach(e => {
-      const session = sessions.find(s =>
-        s.invitees?.some(i => i.emailNorm === e.emailNorm)
-      );
-      const dateStr = session?.start_time || session?.date || e.created_at || e.date;
-      const mk = getMonthKey(dateStr);
+    sessions.forEach(s => {
+      const mk = getMonthKey(s.start_time);
       if (mk) {
-        months[mk] = (months[mk] || 0) + 1;
+        const nbEleves = s.invitees?.length || s.nb_invitees || 0;
+        months[mk] = (months[mk] || 0) + nbEleves;
       }
     });
     return Object.entries(months)
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([key, count]) => ({ month: getMonthLabel(key), eleves: count }));
-  }, [eleves, sessions]);
+  }, [sessions]);
 
-  const formNonRemplis = eleves.filter(e => !e.formulaireRempli);
-  const ontAppele = eleves.filter(e => e.nbAppels > 0);
+  const formNonRemplis = eleves.filter(e => !e.formulaireRempli && e.status !== 'canceled');
+  const ontAppele = eleves.filter(e => e.aAppele);
 
   return (
     <div>
@@ -116,7 +114,7 @@ function Dashboard({ data }) {
               <div key={`form-${i}`} className="action-item warning">
                 <div className="action-icon orange"><FileCheck size={16} /></div>
                 <div>
-                  <div className="action-name">{e.name || e.nom || e.email}</div>
+                  <div className="action-name">{e.name || e.email}</div>
                   <div className="action-detail">Formulaire non rempli</div>
                 </div>
               </div>
@@ -125,7 +123,7 @@ function Dashboard({ data }) {
               <div key={`call-${i}`} className="action-item danger">
                 <div className="action-icon red"><PhoneCall size={16} /></div>
                 <div>
-                  <div className="action-name">{e.name || e.nom || e.email}</div>
+                  <div className="action-name">{e.name || e.email}</div>
                   <div className="action-detail">{e.nbAppels} appel{e.nbAppels > 1 ? 's' : ''} Ringover</div>
                 </div>
               </div>
