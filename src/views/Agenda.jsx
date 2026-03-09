@@ -200,6 +200,7 @@ function Agenda({ data }) {
 
           return (
             <div key={s.id}>
+              {/* Desktop session row */}
               <div
                 className="session-row"
                 style={{ cursor: 'pointer' }}
@@ -220,6 +221,26 @@ function Agenda({ data }) {
                     : <ChevronDown size={14} style={{ color: 'var(--text-muted)' }} />
                   }
                 </span>
+              </div>
+              {/* Mobile session row */}
+              <div className="session-row-mobile" onClick={() => toggleExpand(s.id)}>
+                <div className="srm-line1">
+                  <span className="session-date">{formatDateShort(s.start_time)}</span>
+                  <span className={`badge ${type}`}>{type === 'we' ? 'WE' : 'SEM'}</span>
+                  <span style={{ marginLeft: 'auto' }}>
+                    {isExpanded
+                      ? <ChevronUp size={14} style={{ color: 'var(--text-muted)' }} />
+                      : <ChevronDown size={14} style={{ color: 'var(--text-muted)' }} />
+                    }
+                  </span>
+                </div>
+                <div className="srm-line2">
+                  <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {s.event_type_name || 'Formation 125'}
+                  </span>
+                  <span className="session-eleves" style={{ fontSize: '0.75rem' }}>{nbEleves} él.</span>
+                  <span className="session-ca" style={{ fontSize: '0.75rem' }}>{ca.toLocaleString('fr-FR')} €</span>
+                </div>
               </div>
 
               {isExpanded && (

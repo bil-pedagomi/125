@@ -366,6 +366,33 @@
   transition: background 0.15s;
 }
 
+.session-row-mobile {
+  display: none;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.session-row-mobile:hover {
+  background: var(--bg-hover);
+}
+.session-row-mobile .srm-line1 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.session-row-mobile .srm-line2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
 .session-row:hover {
   background: var(--bg-hover);
 }
@@ -884,10 +911,9 @@
 
 @media (max-width: 768px) {
   .header {
-    padding: 0 1rem;
+    padding: 0.75rem 1rem;
     flex-direction: column;
     height: auto;
-    padding: 0.75rem 1rem;
     gap: 0.5rem;
   }
   .main {
@@ -895,15 +921,68 @@
   }
   .kpi-grid {
     grid-template-columns: repeat(2, 1fr);
+    gap: 0.5rem;
+  }
+  .kpi-card {
+    padding: 0.875rem;
+  }
+  .kpi-card .kpi-value {
+    font-size: 1.25rem;
   }
   .dashboard-grid {
     grid-template-columns: 1fr;
   }
+
+  /* Agenda session row — use dedicated mobile layout */
   .session-row {
-    grid-template-columns: 1fr 1fr;
-    gap: 0.5rem;
+    display: none;
   }
+  .session-row-mobile {
+    display: flex !important;
+  }
+
+  /* Agenda expanded panel — invitee cards */
+  .session-detail-summary {
+    flex-wrap: wrap;
+    gap: 0.75rem;
+  }
+  .session-detail-invitee {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 12px;
+  }
+  .invitee-info {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+    width: 100%;
+  }
+  .invitee-info .invitee-email {
+    max-width: 100%;
+    white-space: normal;
+    word-break: break-all;
+    font-size: 0.6875rem;
+  }
+  .invitee-badges {
+    flex-wrap: wrap;
+  }
+
+  /* Fiche eleve in agenda — single column */
+  .fiche-eleve-grid {
+    grid-template-columns: 1fr;
+  }
+
   .detail-panel {
     width: 100vw;
+  }
+
+  /* Filters bar — wrap nicely */
+  .filters-bar {
+    gap: 0.5rem;
+  }
+  .filter-input {
+    min-width: 0;
+    flex: 1;
   }
 }

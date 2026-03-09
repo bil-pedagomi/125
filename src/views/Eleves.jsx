@@ -34,6 +34,7 @@ const ELEVES_CSS = `
 .eleve-row .er-appels { font-size: 12px; font-family: var(--font-mono); }
 .eleve-row .er-mobile-l1 { display: none; }
 .eleve-row .er-mobile-l2 { display: none; }
+.eleve-row .er-mobile-l3 { display: none; }
 
 .eleve-detail-grid {
   display: grid;
@@ -77,6 +78,13 @@ const ELEVES_CSS = `
     align-items: center;
     gap: 12px;
     padding-left: 40px;
+  }
+  .eleve-row .er-mobile-l3 {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding-left: 40px;
+    flex-wrap: wrap;
   }
   .eleve-detail-grid {
     grid-template-columns: 1fr;
@@ -339,7 +347,13 @@ function Eleves({ data }) {
                 </div>
                 <div className="er-mobile-l2">
                   <span style={{ fontSize: 11, color: '#64748b', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{e.email || '—'}</span>
-                  <span style={{ fontSize: 11, color: e.a_appele ? '#ef4444' : '#64748b', flexShrink: 0 }}>
+                </div>
+                <div className="er-mobile-l3">
+                  {e.form_rempli
+                    ? <span className="invitee-badge green">Form OK</span>
+                    : <span className="invitee-badge orange">Manquant</span>}
+                  {e.niveau_scooter && <span className="invitee-badge grey">{e.niveau_scooter}</span>}
+                  <span style={{ fontSize: 10, color: e.a_appele ? '#ef4444' : '#64748b', fontFamily: 'var(--font-mono)' }}>
                     {e.nb_appels || 0} appel{(e.nb_appels || 0) > 1 ? 's' : ''}
                   </span>
                 </div>
