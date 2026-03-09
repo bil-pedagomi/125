@@ -7,7 +7,9 @@ const PRICE = 199;
 
 function Agenda({ data }) {
   const { sessions } = data;
-  const [monthFilter, setMonthFilter] = useState('all');
+  const now = new Date();
+  const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const [monthFilter, setMonthFilter] = useState(currentMonth);
   const [typeFilter, setTypeFilter] = useState('all');
   const [expandedId, setExpandedId] = useState(null);
 
