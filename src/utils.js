@@ -62,49 +62,16 @@ const PRICE = 199;
 export function consolidateData(raw) {
   const { sessions = [], invitees = [], formulaires = [], appels = [], resumes_appels = [], emails = [], kpis = {} } = raw;
 
-  // Debug: log first formulaire to see actual key names from API
-  if (formulaires.length > 0) {
-    console.log('[DEBUG] Formulaires count:', formulaires.length);
-    console.log('[DEBUG] First formulaire keys:', Object.keys(formulaires[0]));
-    console.log('[DEBUG] First formulaire sample:', {
-      'Votre email': formulaires[0]['Votre email'],
-      'email_normalise': formulaires[0].email_normalise,
-    });
-  }
-
-  // --- Index formulaires by email ---
-  // Try multiple possible key names since Supabase may encode column names differently
-  const formByEmail = {};
+  // --- Index formulaires by email (column: "Votre email") ---
+  const formByEmail = new Map();
   formulaires.forEach(f => {
-    // Find the email value: try exact key, then normalized key, then scan all keys
-    let emailVal = f['Votre email'] || f.email_normalise || f.email;
-    if (!emailVal) {
-      // Fallback: scan all keys for one containing "email" (case-insensitive)
-      for (const k of Object.keys(f)) {
-        if (k.toLowerCase().includes('votre') && k.toLowerCase().includes('email')) {
-          emailVal = f[k];
-          break;
-        }
-      }
-      if (!emailVal) {
-        for (const k of Object.keys(f)) {
-          if (k.toLowerCase() === 'email_normalise' || k.toLowerCase() === 'email') {
-            emailVal = f[k];
-            break;
-          }
-        }
-      }
+    const email = (f["Votre email"] || "").toLowerCase().trim();
+    if (email && email !== "an_account@example.com") {
+      formByEmail.set(email, f);
     }
-    const key = normalizeEmail(emailVal);
-    if (key) formByEmail[key] = f;
   });
 
-  if (formulaires.length > 0) {
-    console.log('[DEBUG] formByEmail size:', Object.keys(formByEmail).length);
-    console.log('[DEBUG] Sample emails in formByEmail:', Object.keys(formByEmail).slice(0, 5));
-  }
-
-  // --- Index appels by email (v_125_appels has: email, tel_norm, a_appele, nb_appels) ---
+  // --- Index appels by email (v_125_appels: email, tel_norm, a_appele, nb_appels) ---
   const appelsByEmail = {};
   appels.forEach(a => {
     const key = normalizeEmail(a.email);
@@ -132,11 +99,9 @@ export function consolidateData(raw) {
   });
 
   // --- Enrich invitees with cross-referenced data ---
-  let matchCount = 0;
   const enrichedInvitees = invitees.map(inv => {
     const email = normalizeEmail(inv.email);
-    const form = formByEmail[email];
-    if (form) matchCount++;
+    const form = formByEmail.get(email) || null;
     const appelsForInv = appelsByEmail[email] || [];
     const aAppele = appelsForInv.some(a => a.a_appele);
     const nbAppels = appelsForInv.reduce((sum, a) => sum + (a.nb_appels || 0), 0);
@@ -147,8 +112,10 @@ export function consolidateData(raw) {
     // Niveau scooter from formulaire or from invitee questions_and_answers
     let niveauScooter = '—';
     if (form) {
-      niveauScooter = form['Avez-vous déjà conduit un scooter ?'] ||
-        form['Comment évalueriez-vous votre niveau de conduite de scooter ?'] || '—';
+      const val = form['Avez-vous déjà conduit un scooter ?'];
+      const val2 = form['Comment évalueriez-vous votre niveau de conduite de scooter ?'];
+      if (val !== null && val !== undefined && val !== '') niveauScooter = String(val);
+      else if (val2 !== null && val2 !== undefined && val2 !== '') niveauScooter = String(val2);
     }
     if (niveauScooter === '—' && inv.questions_and_answers) {
       const niveauQ = inv.questions_and_answers.find(q =>
@@ -164,7 +131,7 @@ export function consolidateData(raw) {
       ...inv,
       emailNorm: email,
       phoneNorm: phone,
-      formulaire: form || null,
+      formulaire: form,
       formulaireRempli: !!form,
       niveauScooter,
       source,
@@ -176,11 +143,6 @@ export function consolidateData(raw) {
       nbEmails: invEmails.length,
     };
   });
-
-  console.log('[DEBUG] Invitees total:', invitees.length, '| Matched with form:', matchCount);
-  if (invitees.length > 0) {
-    console.log('[DEBUG] First invitee email:', invitees[0].email, '| In formByEmail?', !!formByEmail[normalizeEmail(invitees[0].email)]);
-  }
 
   // --- Build session map keyed by session id (int) ---
   const sessionMap = {};
