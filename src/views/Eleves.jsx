@@ -250,17 +250,12 @@ function Eleves({ data }) {
     return map;
   }, [sessions]);
 
-  const getEleveSession = (eleve) => {
-    return sessionByEventId[eleve.calendly_event_id] || null;
-  };
-
-  // Compute filtered list — NO useMemo to avoid stale closure bugs
-  const filtered = (eleves || []).filter(e => {
+  // Single filter function used for BOTH counter and list rendering
+  function matchesFilter(e) {
     if (search) {
-      const q = search.toLowerCase().trim();
-      const haystack = [e.name, e.email, e.phone, e.neph].filter(Boolean).join(' ').toLowerCase();
-      const words = q.split(/\s+/);
-      if (!words.every(w => haystack.includes(w))) return false;
+      const words = search.toLowerCase().trim().split(/\s+/).filter(Boolean);
+      const hay = [e.name, e.email, e.phone, e.neph].filter(Boolean).join(' ').toLowerCase();
+      if (!words.every(w => hay.includes(w))) return false;
     }
     if (monthFilter !== 'all' || typeFilter !== 'all') {
       const session = sessionByEventId[e.calendly_event_id] || null;
@@ -275,11 +270,10 @@ function Eleves({ data }) {
       }
     }
     return true;
-  });
+  }
 
-  const toggleExpand = (eleveEmail) => {
-    setExpandedId(expandedId === eleveEmail ? null : eleveEmail);
-  };
+  // Apply filter ONCE, store result
+  const filtered = eleves.filter(matchesFilter);
 
   return (
     <div>
@@ -313,12 +307,12 @@ function Eleves({ data }) {
 
       <div className="session-list">
         {filtered.map((e, i) => {
-          const session = getEleveSession(e);
+          const session = sessionByEventId[e.calendly_event_id] || null;
           const key = e.email || e.name || `eleve-${i}`;
           const isExpanded = expandedId === key;
           return (
             <div key={key}>
-              <div className={`eleve-row${isExpanded ? ' expanded' : ''}`} onClick={() => toggleExpand(key)}>
+              <div className={`eleve-row${isExpanded ? ' expanded' : ''}`} onClick={() => setExpandedId(isExpanded ? null : key)}>
                 {/* Desktop cells */}
                 <span className="er-photo">
                   <Avatar name={e.name} photoUrl={e.photo_identite} size={isExpanded ? 80 : 40} style={{ transition: 'all 0.3s ease', flexShrink: 0 }} />
