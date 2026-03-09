@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react';
 import { Search, X, User, Phone, Mail, FileText, Calendar } from 'lucide-react';
 import { formatDate, getMonthKey, getMonthLabel, getSessionType } from '../utils';
 import FicheEleve from '../components/FicheEleve';
+import Avatar from '../components/Avatar';
 
 function Eleves({ data }) {
   const { eleves, sessions } = data;
@@ -104,7 +105,10 @@ function Eleves({ data }) {
               const session = getEleveSession(e);
               return (
                 <tr key={i} onClick={() => setSelected(e)}>
-                  <td style={{ fontWeight: 500 }}>{e.name || '—'}</td>
+                  <td style={{ fontWeight: 500, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <Avatar name={e.name} photoUrl={e.photo_identite} size={32} />
+                    {e.name || '—'}
+                  </td>
                   <td className="mono">{e.email || '—'}</td>
                   <td className="mono">{formatDate(session?.start_time)}</td>
                   <td>{e.form_rempli ? <span className="status-yes">Oui</span> : <span className="status-no">Non</span>}</td>
@@ -127,6 +131,7 @@ function Eleves({ data }) {
         <div className="detail-overlay" onClick={() => setSelected(null)}>
           <div className="detail-panel" onClick={e => e.stopPropagation()}>
             <div className="detail-header">
+              <Avatar name={selectedEleve.name} photoUrl={selectedEleve.photo_identite} size={80} />
               <h2>{selectedEleve.name || selectedEleve.email}</h2>
               <button className="detail-close" onClick={() => setSelected(null)}>
                 <X size={20} />

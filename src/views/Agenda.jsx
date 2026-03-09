@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react';
 import { CalendarDays, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, FileCheck, PhoneCall, Users, Euro } from 'lucide-react';
 import { formatDateShort, formatDate, getMonthKey, getMonthLabel, getSessionType } from '../utils';
 import FicheEleve from '../components/FicheEleve';
+import Avatar from '../components/Avatar';
 
 const PRICE = 199;
 
@@ -152,6 +153,7 @@ function Agenda({ data }) {
                         return (
                           <div key={i} className="session-detail-invitee-wrapper">
                             <div className="session-detail-invitee">
+                              <Avatar name={inv.name} photoUrl={inv.photo_identite} size={40} />
                               <div className="invitee-info">
                                 <span className="invitee-name">{inv.name || '—'}</span>
                                 <span className="invitee-email">{inv.email || '—'}</span>

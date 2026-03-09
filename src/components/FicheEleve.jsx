@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { ChevronDown, ChevronUp, FileText, ExternalLink, AlertTriangle } from 'lucide-react';
+import Avatar from './Avatar';
 
 const NIVEAU_COLORS = {
   'Débutant': { bg: 'var(--red-bg)', color: 'var(--red)' },
@@ -62,6 +63,11 @@ export default function FicheEleve({ invitee, defaultOpen = false }) {
       </div>
       {open && (
         <div className="fiche-eleve-body">
+          {invitee.photo_identite && (
+            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '0.75rem' }}>
+              <Avatar name={invitee.name} photoUrl={invitee.photo_identite} size={80} />
+            </div>
+          )}
           <div className="fiche-eleve-grid">
             <div className="fiche-eleve-field">
               <div className="label">NEPH</div>
