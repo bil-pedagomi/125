@@ -81,7 +81,13 @@ export default function FicheEleve({ invitee, defaultOpen = false }) {
             </div>
             <div className="fiche-eleve-field">
               <div className="label">Déjà conduit</div>
-              <div className="value">{invitee.deja_conduit === 1 ? 'Oui' : invitee.deja_conduit === 0 ? 'Non' : 'Non renseigné'}</div>
+              <div className="value">
+                {invitee.deja_conduit === 1
+                  ? <span style={{ color: 'var(--green)', fontWeight: 600 }}>Oui</span>
+                  : invitee.deja_conduit === 0
+                    ? <span style={{ color: 'var(--red)', fontWeight: 600 }}>Non</span>
+                    : 'Non renseigné'}
+              </div>
             </div>
             <div className="fiche-eleve-field">
               <div className="label">Source</div>
