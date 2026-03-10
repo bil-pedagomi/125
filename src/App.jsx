@@ -1,15 +1,13 @@
 import { useState, useEffect } from 'react';
-import { LayoutDashboard, CalendarDays, Users, BarChart3, LogOut } from 'lucide-react';
+import { CalendarDays, Users, BarChart3, LogOut } from 'lucide-react';
 import './App.css';
 import { fetchDashboardData, consolidateData } from './utils';
-import Dashboard from './views/Dashboard';
 import Agenda from './views/Agenda';
 import Eleves from './views/Eleves';
 import Stats from './views/Stats';
 import LoginPage from './components/LoginPage';
 
 const TABS = [
-  { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { id: 'agenda', label: 'Agenda', icon: CalendarDays },
   { id: 'eleves', label: 'Élèves', icon: Users },
   { id: 'stats', label: 'Stats', icon: BarChart3 },
@@ -17,7 +15,7 @@ const TABS = [
 
 function App() {
   const [loggedIn, setLoggedIn] = useState(false);
-  const [tab, setTab] = useState('dashboard');
+  const [tab, setTab] = useState('agenda');
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -85,7 +83,7 @@ function App() {
           ))}
           <button
             className="tab logout-btn"
-            onClick={() => { setLoggedIn(false); setData(null); setTab('dashboard'); }}
+            onClick={() => { setLoggedIn(false); setData(null); setTab('agenda'); }}
             title="Déconnexion"
           >
             <LogOut size={16} />
@@ -94,7 +92,6 @@ function App() {
         </nav>
       </header>
       <main className="main">
-        {tab === 'dashboard' && <Dashboard data={data} />}
         {tab === 'agenda' && <Agenda data={data} />}
         {tab === 'eleves' && <Eleves data={data} />}
         {tab === 'stats' && <Stats data={data} />}
