@@ -218,38 +218,54 @@ function Stats({ data }) {
     return null;
   };
 
-  // Evolution: niveau per month — try formulaires first, fallback to session invitees
+  // Evolution: niveau per month — combine all sources
   const evolutionData = useMemo(() => {
     const monthMap = {};
     const initMonth = (mk) => {
       if (!monthMap[mk]) monthMap[mk] = { 'Débutant': 0, 'Intermédiaire': 0, 'Avancé': 0, 'Expert': 0 };
     };
 
-    // Source 1: formulaires with their own date
-    const formulaires = data.raw?.formulaires || [];
-    formulaires.forEach(f => {
-      const dateField = f.created_at || f.date_formation || f.submitted_at || f.date_rdv || f.date;
-      if (!dateField || !f.niveau_scooter) return;
-      const mk = getMonthKey(dateField);
-      if (!mk) return;
-      const niveau = normalizeNiveau(f.niveau_scooter);
-      if (!niveau) return;
-      initMonth(mk);
-      monthMap[mk][niveau]++;
+    // Build email→session date lookup from sessions
+    const emailToSessionDate = {};
+    sessions.forEach(s => {
+      if (!s.start_time) return;
+      (s.invitees || []).forEach(inv => {
+        const email = inv.email?.toLowerCase()?.trim();
+        if (email) emailToSessionDate[email] = s.start_time;
+      });
     });
 
-    // Source 2: if formulaires yielded nothing, use session invitees
+    // Source 1: session invitees (most reliable — has both date and niveau)
+    sessions.forEach(s => {
+      const mk = getMonthKey(s.start_time);
+      if (!mk) return;
+      (s.invitees || []).forEach(inv => {
+        if (!inv.niveau_scooter) return;
+        const niveau = normalizeNiveau(inv.niveau_scooter);
+        if (!niveau) return;
+        initMonth(mk);
+        monthMap[mk][niveau]++;
+      });
+    });
+
+    // Source 2: if sessions yielded nothing, try formulaires with their own date or matched session date
     if (Object.keys(monthMap).length === 0) {
-      sessions.forEach(s => {
-        const mk = getMonthKey(s.start_time);
+      const forms = data.raw?.formulaires || [];
+      forms.forEach(f => {
+        if (!f.niveau_scooter) return;
+        // Try formulaire's own date fields, then fallback to session date via email
+        let dateField = f.created_at || f.date_formation || f.submitted_at || f.date_rdv || f.date;
+        if (!dateField) {
+          const email = (f.email || f.email_address || '').toLowerCase().trim();
+          dateField = emailToSessionDate[email];
+        }
+        if (!dateField) return;
+        const mk = getMonthKey(dateField);
         if (!mk) return;
-        (s.invitees || []).forEach(inv => {
-          if (!inv.niveau_scooter) return;
-          const niveau = normalizeNiveau(inv.niveau_scooter);
-          if (!niveau) return;
-          initMonth(mk);
-          monthMap[mk][niveau]++;
-        });
+        const niveau = normalizeNiveau(f.niveau_scooter);
+        if (!niveau) return;
+        initMonth(mk);
+        monthMap[mk][niveau]++;
       });
     }
 
