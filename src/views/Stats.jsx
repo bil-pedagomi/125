@@ -1,10 +1,10 @@
-import { useState, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
   PieChart, Pie, Cell, BarChart, Bar, LineChart, Line,
   XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, CartesianGrid,
 } from 'recharts';
-import { Users, Euro, FileCheck, Phone, PhoneCall, Mail, MessageSquare, Calendar } from 'lucide-react';
-import { getMonthKey, getMonthLabel } from '../utils';
+import { Users, Euro, FileCheck, Phone, PhoneCall, Mail, MessageSquare, Calendar, TrendingUp, Eye, Target } from 'lucide-react';
+import { getMonthKey, getMonthLabel, fetchTrafficConversion } from '../utils';
 
 const PRICE = 199;
 
@@ -145,6 +145,52 @@ function Stats({ data }) {
   const [periode, setPeriode] = useState(String(currentYear));
   const [customFrom, setCustomFrom] = useState('');
   const [customTo, setCustomTo] = useState('');
+
+  // ─── Trafic & Conversion ───
+  const [trafficData, setTrafficData] = useState(null);
+  const [trafficLoading, setTrafficLoading] = useState(false);
+
+  useEffect(() => {
+    if (periode === 'custom') return;
+    const year = parseInt(periode);
+    if (isNaN(year)) return;
+    setTrafficLoading(true);
+    fetchTrafficConversion(year)
+      .then(setTrafficData)
+      .catch(() => setTrafficData(null))
+      .finally(() => setTrafficLoading(false));
+  }, [periode]);
+
+  const trafficChartData = useMemo(() => {
+    if (!trafficData) return [];
+    const map = {};
+    const isWeekly = periode !== 'custom' && parseInt(periode) >= 2026;
+    const fmt = (dateStr) => {
+      const d = new Date(dateStr);
+      if (isWeekly) {
+        return d.toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' });
+      }
+      const months = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sep', 'Oct', 'Nov', 'Déc'];
+      return `${months[d.getMonth()]} ${d.getFullYear()}`;
+    };
+    (trafficData.traffic || []).forEach(t => {
+      const key = t.period;
+      if (!map[key]) map[key] = { period: key, label: fmt(key), visiteurs: 0, inscrits: 0 };
+      map[key].visiteurs = t.visiteurs;
+    });
+    (trafficData.conversions || []).forEach(c => {
+      const key = c.period;
+      if (!map[key]) map[key] = { period: key, label: fmt(key), visiteurs: 0, inscrits: 0 };
+      map[key].inscrits = c.inscrits;
+    });
+    return Object.values(map).sort((a, b) => a.period.localeCompare(b.period));
+  }, [trafficData, periode]);
+
+  const tauxConversion = trafficData && trafficData.total_visitors > 0
+    ? ((trafficData.total_inscrits / trafficData.total_visitors) * 100)
+    : 0;
+
+  const convBorderColor = tauxConversion >= 2 ? '#10b981' : tauxConversion >= 1 ? '#f59e0b' : '#ef4444';
 
   const years = useMemo(() => {
     const set = new Set();
@@ -626,6 +672,73 @@ function Stats({ data }) {
           )}
         </div>
       </div>
+
+      {/* ═══ TRAFIC & CONVERSION ═══ */}
+      {periode !== 'custom' && (
+        <>
+          <div style={{ color: 'var(--text-muted)', fontSize: 12, margin: '24px 0 12px' }}>
+            Trafic & Conversion — page 125
+          </div>
+
+          {trafficLoading ? (
+            <p className="empty-state">Chargement des données trafic...</p>
+          ) : trafficData ? (
+            <>
+              <div className="kpi-grid" style={{ marginBottom: 16 }}>
+                <div className="kpi-card blue">
+                  <span className="kpi-label"><Eye size={12} style={{ display: 'inline', marginRight: 4 }} />Visiteurs page 125</span>
+                  <span className="kpi-value">{(trafficData.total_visitors || 0).toLocaleString('fr-FR')}</span>
+                  <span className="kpi-sub">visiteurs uniques</span>
+                </div>
+                <div className="kpi-card" style={{ borderColor: convBorderColor }}>
+                  <span className="kpi-label"><Target size={12} style={{ display: 'inline', marginRight: 4 }} />Taux de conversion</span>
+                  <span className="kpi-value" style={{ color: convBorderColor }}>{tauxConversion.toFixed(1)}%</span>
+                  <span className="kpi-sub">{trafficData.total_inscrits || 0} inscrits / {trafficData.total_visitors || 0} visiteurs</span>
+                </div>
+                <div className="kpi-card green">
+                  <span className="kpi-label"><TrendingUp size={12} style={{ display: 'inline', marginRight: 4 }} />Inscrits 125</span>
+                  <span className="kpi-value">{(trafficData.total_inscrits || 0).toLocaleString('fr-FR')}</span>
+                  <span className="kpi-sub">réservations payées</span>
+                </div>
+              </div>
+
+              <div className="card" style={{ marginBottom: 16 }}>
+                <div className="card-title"><TrendingUp size={16} /> Trafic vs Conversions {parseInt(periode) >= 2026 ? '(par semaine)' : '(par mois)'}</div>
+                {trafficChartData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={300}>
+                    <LineChart data={trafficChartData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#2a2f45" />
+                      <XAxis dataKey="label" tick={{ fill: '#9aa0b8', fontSize: 11 }} />
+                      <YAxis yAxisId="left" tick={{ fill: '#9aa0b8', fontSize: 11 }} allowDecimals={false} />
+                      <YAxis yAxisId="right" orientation="right" tick={{ fill: '#9aa0b8', fontSize: 11 }} allowDecimals={false} />
+                      <Tooltip
+                        contentStyle={{ background: '#1e2235', border: '1px solid #2a2f45', borderRadius: 8, fontSize: 12 }}
+                        labelStyle={{ color: '#e8eaed' }}
+                        formatter={(value, name, props) => {
+                          if (name === 'Visiteurs') return [value, name];
+                          if (name === 'Inscrits') {
+                            const v = props.payload.visiteurs;
+                            const taux = v > 0 ? ((value / v) * 100).toFixed(1) : '—';
+                            return [`${value} (conv. ${taux}%)`, name];
+                          }
+                          return [value, name];
+                        }}
+                      />
+                      <Legend wrapperStyle={{ fontSize: 11 }} />
+                      <Line yAxisId="left" type="monotone" dataKey="visiteurs" stroke="#3b82f6" strokeWidth={2} dot={{ r: 3 }} name="Visiteurs" />
+                      <Line yAxisId="right" type="monotone" dataKey="inscrits" stroke="#10b981" strokeWidth={2} dot={{ r: 3 }} name="Inscrits" />
+                    </LineChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <p className="empty-state">Aucune donnée de trafic</p>
+                )}
+              </div>
+            </>
+          ) : (
+            <p className="empty-state">Données de trafic indisponibles</p>
+          )}
+        </>
+      )}
 
       {/* ═══ STATISTIQUES TYPEFORM ═══ */}
       <div style={{ color: 'var(--text-muted)', fontSize: 12, margin: '24px 0 12px' }}>

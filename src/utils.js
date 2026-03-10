@@ -1,8 +1,24 @@
 const API_URL = 'https://yuolnqyejxtfpxntflle.supabase.co/functions/v1/dashboard-125?key=eb498a94-3602-46a4-bce7-df288002402d';
+const SUPABASE_URL = 'https://yuolnqyejxtfpxntflle.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inl1b2xucXllanh0ZnB4bnRmbGxlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIxOTIzNzcsImV4cCI6MjA4Nzc2ODM3N30.cktsC7ly3ImeIY_2mVmxo0phSTz3obIG3UHgl_iDa7U';
 
 export async function fetchDashboardData() {
   const res = await fetch(API_URL);
   if (!res.ok) throw new Error(`Erreur API: ${res.status}`);
+  return res.json();
+}
+
+export async function fetchTrafficConversion(year) {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/get_traffic_conversion`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'apikey': SUPABASE_ANON_KEY,
+      'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+    },
+    body: JSON.stringify({ p_year: year }),
+  });
+  if (!res.ok) throw new Error(`Erreur trafic API: ${res.status}`);
   return res.json();
 }
 
