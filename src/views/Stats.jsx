@@ -3,7 +3,7 @@ import {
   PieChart, Pie, Cell, BarChart, Bar, LineChart, Line,
   XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, CartesianGrid,
 } from 'recharts';
-import { Users, Euro, FileCheck, Phone, PhoneCall, Mail, AlertTriangle, MessageSquare, Calendar } from 'lucide-react';
+import { Users, Euro, FileCheck, Phone, PhoneCall, Mail, MessageSquare, Calendar } from 'lucide-react';
 import { getMonthKey, getMonthLabel } from '../utils';
 
 const PRICE = 199;
@@ -270,9 +270,6 @@ function Stats({ data }) {
       .sort((a, b) => b[1] - a[1])
       .map(([motif, count]) => ({ motif, count }));
   }, [filteredSessions, globalMotifs]);
-
-  const formNonRemplis = filteredEleves.filter(e => !e.form_rempli && e.status !== 'canceled');
-  const ontAppele = filteredEleves.filter(e => e.a_appele);
 
   const yearStr = periode !== 'custom' ? periode : '';
   const yearN1Str = periode !== 'custom' ? String(parseInt(periode) - 1) : '';
@@ -627,35 +624,6 @@ function Stats({ data }) {
           ) : (
             <p className="empty-state">Aucun motif d'appel enregistré</p>
           )}
-        </div>
-      </div>
-
-      <div className="actions-section">
-        <div className="card">
-          <div className="card-title"><AlertTriangle size={16} /> Actions requises</div>
-          <div className="action-list">
-            {formNonRemplis.map((e, i) => (
-              <div key={`form-${i}`} className="action-item warning">
-                <div className="action-icon orange"><FileCheck size={16} /></div>
-                <div>
-                  <div className="action-name">{e.name || e.email}</div>
-                  <div className="action-detail">Formulaire non rempli</div>
-                </div>
-              </div>
-            ))}
-            {ontAppele.map((e, i) => (
-              <div key={`call-${i}`} className="action-item danger">
-                <div className="action-icon red"><PhoneCall size={16} /></div>
-                <div>
-                  <div className="action-name">{e.name || e.email}</div>
-                  <div className="action-detail">{e.nb_appels} appel{e.nb_appels > 1 ? 's' : ''} Ringover</div>
-                </div>
-              </div>
-            ))}
-            {formNonRemplis.length === 0 && ontAppele.length === 0 && (
-              <p className="empty-state">Aucune action requise</p>
-            )}
-          </div>
         </div>
       </div>
 
