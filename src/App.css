@@ -216,6 +216,15 @@ html, body, #root {
   color: var(--accent);
 }
 
+.stat-card-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 12px;
+}
+
 /* Motifs list */
 .motif-list {
   list-style: none;

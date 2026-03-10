@@ -1,16 +1,18 @@
 import { useState, useEffect } from 'react';
-import { LayoutDashboard, CalendarDays, Users, LogOut } from 'lucide-react';
+import { LayoutDashboard, CalendarDays, Users, BarChart3, LogOut } from 'lucide-react';
 import './App.css';
 import { fetchDashboardData, consolidateData } from './utils';
 import Dashboard from './views/Dashboard';
 import Agenda from './views/Agenda';
 import Eleves from './views/Eleves';
+import Stats from './views/Stats';
 import LoginPage from './components/LoginPage';
 
 const TABS = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { id: 'agenda', label: 'Agenda', icon: CalendarDays },
   { id: 'eleves', label: 'Élèves', icon: Users },
+  { id: 'stats', label: 'Stats', icon: BarChart3 },
 ];
 
 function App() {
@@ -95,6 +97,7 @@ function App() {
         {tab === 'dashboard' && <Dashboard data={data} />}
         {tab === 'agenda' && <Agenda data={data} />}
         {tab === 'eleves' && <Eleves data={data} />}
+        {tab === 'stats' && <Stats data={data} />}
       </main>
     </div>
   );
