@@ -5,6 +5,13 @@ import {
 } from 'recharts';
 import { getMonthKey, getMonthLabel } from '../utils';
 
+const SOURCE_COLORS = {
+  'Recherche Google': '#8b5cf6',
+  'IA': '#3b82f6',
+  'Bouche à oreille': '#10b981',
+};
+const SOURCE_FALLBACK_COLORS = ['#f59e0b', '#ef4444', '#ec4899', '#64748b', '#06b6d4', '#84cc16', '#d946ef'];
+
 const NIVEAU_COLORS = {
   'Avancé': '#3b82f6',
   'Intermédiaire': '#f59e0b',
@@ -218,6 +225,25 @@ function Stats({ data }) {
     return null;
   };
 
+  // Shared: build email→session date lookup
+  const emailToSessionDate = useMemo(() => {
+    const map = {};
+    sessions.forEach(s => {
+      if (!s.start_time) return;
+      (s.invitees || []).forEach(inv => {
+        const email = inv.email?.toLowerCase()?.trim();
+        if (email) map[email] = s.start_time;
+      });
+    });
+    return map;
+  }, [sessions]);
+
+  // Shared: resolve date for a record (formulaire or invitee)
+  const resolveDate = (record) => {
+    return record.created_at || record.date_formation || record.submitted_at
+      || record.date_rdv || record.date || null;
+  };
+
   // Evolution: niveau per month — combine all sources
   const evolutionData = useMemo(() => {
     const monthMap = {};
@@ -225,15 +251,6 @@ function Stats({ data }) {
       if (!monthMap[mk]) monthMap[mk] = { 'Débutant': 0, 'Intermédiaire': 0, 'Avancé': 0, 'Expert': 0 };
     };
 
-    // Build email→session date lookup from sessions
-    const emailToSessionDate = {};
-    sessions.forEach(s => {
-      if (!s.start_time) return;
-      (s.invitees || []).forEach(inv => {
-        const email = inv.email?.toLowerCase()?.trim();
-        if (email) emailToSessionDate[email] = s.start_time;
-      });
-    });
 
     // Source 1: session invitees (most reliable — has both date and niveau)
     sessions.forEach(s => {
@@ -253,8 +270,7 @@ function Stats({ data }) {
       const forms = data.raw?.formulaires || [];
       forms.forEach(f => {
         if (!f.niveau_scooter) return;
-        // Try formulaire's own date fields, then fallback to session date via email
-        let dateField = f.created_at || f.date_formation || f.submitted_at || f.date_rdv || f.date;
+        let dateField = resolveDate(f);
         if (!dateField) {
           const email = (f.email || f.email_address || '').toLowerCase().trim();
           dateField = emailToSessionDate[email];
@@ -273,6 +289,71 @@ function Stats({ data }) {
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([key, counts]) => ({ month: getMonthLabel(key), ...counts }));
   }, [sessions, data.raw?.formulaires]);
+
+  // Evolution: source d'acquisition per month
+  const { sourceEvolutionData, sourceKeys, sourceColorMap } = useMemo(() => {
+    const monthMap = {};
+    const sourceTotals = {};
+
+    const processRecord = (record, dateStr) => {
+      const src = record.source_acquisition;
+      if (!src || !dateStr) return;
+      const srcName = String(src).trim();
+      if (!srcName) return;
+      const mk = getMonthKey(dateStr);
+      if (!mk) return;
+      if (!monthMap[mk]) monthMap[mk] = {};
+      monthMap[mk][srcName] = (monthMap[mk][srcName] || 0) + 1;
+      sourceTotals[srcName] = (sourceTotals[srcName] || 0) + 1;
+    };
+
+    // Source 1: session invitees
+    sessions.forEach(s => {
+      if (!s.start_time) return;
+      (s.invitees || []).forEach(inv => processRecord(inv, s.start_time));
+    });
+
+    // Source 2: if nothing from sessions, try formulaires
+    if (Object.keys(monthMap).length === 0) {
+      const forms = data.raw?.formulaires || [];
+      forms.forEach(f => {
+        let dateField = resolveDate(f);
+        if (!dateField) {
+          const email = (f.email || f.email_address || '').toLowerCase().trim();
+          dateField = emailToSessionDate[email];
+        }
+        processRecord(f, dateField);
+      });
+    }
+
+    // Sort sources by total volume descending
+    const keys = Object.entries(sourceTotals)
+      .sort((a, b) => b[1] - a[1])
+      .map(([name]) => name);
+
+    // Build color map
+    const colorMap = {};
+    let fallbackIdx = 0;
+    keys.forEach(name => {
+      if (SOURCE_COLORS[name]) {
+        colorMap[name] = SOURCE_COLORS[name];
+      } else {
+        colorMap[name] = SOURCE_FALLBACK_COLORS[fallbackIdx % SOURCE_FALLBACK_COLORS.length];
+        fallbackIdx++;
+      }
+    });
+
+    // Build chart data with all sources as keys
+    const chartData = Object.entries(monthMap)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([mk, counts]) => {
+        const row = { month: getMonthLabel(mk) };
+        keys.forEach(k => { row[k] = counts[k] || 0; });
+        return row;
+      });
+
+    return { sourceEvolutionData: chartData, sourceKeys: keys, sourceColorMap: colorMap };
+  }, [sessions, data.raw?.formulaires, emailToSessionDate]);
 
   // Build dynamic occasion color map
   const occasionColorMap = useMemo(() => {
@@ -333,6 +414,37 @@ function Stats({ data }) {
               <Line type="monotone" dataKey="Intermédiaire" stroke="#f59e0b" strokeWidth={2} dot={{ r: 3 }} />
               <Line type="monotone" dataKey="Avancé" stroke="#3b82f6" strokeWidth={2} dot={{ r: 3 }} />
               <Line type="monotone" dataKey="Expert" stroke="#10b981" strokeWidth={2} dot={{ r: 3 }} />
+            </LineChart>
+          </ResponsiveContainer>
+        ) : (
+          <p className="empty-state">Aucune donnée d'évolution</p>
+        )}
+      </div>
+
+      {/* Row 4: Line chart source acquisition evolution */}
+      <div className="card" style={{ marginTop: 16 }}>
+        <div className="stat-card-title">Évolution des sources d'acquisition par mois</div>
+        {sourceEvolutionData.length > 0 ? (
+          <ResponsiveContainer width="100%" height={280}>
+            <LineChart data={sourceEvolutionData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#2a2f45" />
+              <XAxis dataKey="month" tick={{ fill: '#9aa0b8', fontSize: 11 }} />
+              <YAxis tick={{ fill: '#9aa0b8', fontSize: 11 }} allowDecimals={false} />
+              <Tooltip
+                contentStyle={{ background: '#1e2235', border: '1px solid #2a2f45', borderRadius: 8, fontSize: 12 }}
+                labelStyle={{ color: '#e8eaed' }}
+              />
+              <Legend wrapperStyle={{ fontSize: 11 }} />
+              {sourceKeys.map(key => (
+                <Line
+                  key={key}
+                  type="monotone"
+                  dataKey={key}
+                  stroke={sourceColorMap[key]}
+                  strokeWidth={2}
+                  dot={{ r: 3 }}
+                />
+              ))}
             </LineChart>
           </ResponsiveContainer>
         ) : (
