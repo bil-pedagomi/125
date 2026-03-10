@@ -134,7 +134,21 @@ function Stats({ data }) {
     return data.eleves?.filter(e => e.form_rempli) || [];
   }, [formulaires, data.eleves]);
 
-  const niveauData = useMemo(() => countField(allFormData, 'niveau_scooter'), [allFormData]);
+  const niveauData = useMemo(() => {
+    const counts = { 'Débutant': 0, 'Intermédiaire': 0, 'Avancé': 0, 'Expert': 0 };
+    allFormData.forEach(f => {
+      if (!f.niveau_scooter) return;
+      const n = f.niveau_scooter.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+      if (n.includes('debut')) counts['Débutant']++;
+      else if (n.includes('interm')) counts['Intermédiaire']++;
+      else if (n.includes('avan')) counts['Avancé']++;
+      else if (n.includes('expert')) counts['Expert']++;
+    });
+    return Object.entries(counts)
+      .filter(([, v]) => v > 0)
+      .map(([name, value]) => ({ name, value }))
+      .sort((a, b) => b.value - a.value);
+  }, [allFormData]);
 
   const conduiteData = useMemo(() => {
     const counts = { 'Oui': 0, 'Non': 0 };
@@ -172,23 +186,77 @@ function Stats({ data }) {
   const sourceData = useMemo(() => countField(allFormData, 'source_acquisition'), [allFormData]);
   const raisonData = useMemo(() => countField(allFormData, 'raison_reservation'), [allFormData]);
 
-  // Evolution: niveau per month from sessions
+  // Debug: inspect formulaires structure
+  useMemo(() => {
+    const f = data.raw?.formulaires;
+    if (f?.length > 0) {
+      console.log("Sample formulaire:", f[0]);
+      console.log("Niveaux distincts:", [...new Set(f.map(x => x.niveau_scooter))]);
+      console.log("Date fields sample:", {
+        created_at: f[0].created_at,
+        date_formation: f[0].date_formation,
+        submitted_at: f[0].submitted_at,
+        date_rdv: f[0].date_rdv,
+        date: f[0].date,
+      });
+    }
+    // Also check invitees
+    const inv = sessions.flatMap(s => s.invitees || []).filter(i => i.niveau_scooter);
+    if (inv.length > 0) {
+      console.log("Sample invitee with niveau:", inv[0]);
+      console.log("Invitee niveaux distincts:", [...new Set(inv.map(i => i.niveau_scooter))]);
+    }
+  }, [data.raw?.formulaires, sessions]);
+
+  const normalizeNiveau = (v) => {
+    if (!v) return null;
+    const n = v.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    if (n.includes('debut')) return 'Débutant';
+    if (n.includes('interm')) return 'Intermédiaire';
+    if (n.includes('avan')) return 'Avancé';
+    if (n.includes('expert')) return 'Expert';
+    return null;
+  };
+
+  // Evolution: niveau per month — try formulaires first, fallback to session invitees
   const evolutionData = useMemo(() => {
     const monthMap = {};
-    sessions.forEach(s => {
-      const mk = getMonthKey(s.start_time);
+    const initMonth = (mk) => {
+      if (!monthMap[mk]) monthMap[mk] = { 'Débutant': 0, 'Intermédiaire': 0, 'Avancé': 0, 'Expert': 0 };
+    };
+
+    // Source 1: formulaires with their own date
+    const formulaires = data.raw?.formulaires || [];
+    formulaires.forEach(f => {
+      const dateField = f.created_at || f.date_formation || f.submitted_at || f.date_rdv || f.date;
+      if (!dateField || !f.niveau_scooter) return;
+      const mk = getMonthKey(dateField);
       if (!mk) return;
-      (s.invitees || []).forEach(inv => {
-        if (!inv.form_rempli || !inv.niveau_scooter) return;
-        if (!monthMap[mk]) monthMap[mk] = { 'Débutant': 0, 'Intermédiaire': 0, 'Avancé': 0, 'Expert': 0 };
-        const n = inv.niveau_scooter;
-        if (monthMap[mk].hasOwnProperty(n)) monthMap[mk][n]++;
-      });
+      const niveau = normalizeNiveau(f.niveau_scooter);
+      if (!niveau) return;
+      initMonth(mk);
+      monthMap[mk][niveau]++;
     });
+
+    // Source 2: if formulaires yielded nothing, use session invitees
+    if (Object.keys(monthMap).length === 0) {
+      sessions.forEach(s => {
+        const mk = getMonthKey(s.start_time);
+        if (!mk) return;
+        (s.invitees || []).forEach(inv => {
+          if (!inv.niveau_scooter) return;
+          const niveau = normalizeNiveau(inv.niveau_scooter);
+          if (!niveau) return;
+          initMonth(mk);
+          monthMap[mk][niveau]++;
+        });
+      });
+    }
+
     return Object.entries(monthMap)
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([key, counts]) => ({ month: getMonthLabel(key), ...counts }));
-  }, [sessions]);
+  }, [sessions, data.raw?.formulaires]);
 
   // Build dynamic occasion color map
   const occasionColorMap = useMemo(() => {
