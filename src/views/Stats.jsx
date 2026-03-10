@@ -16,10 +16,11 @@ const SOURCE_COLORS = {
 const SOURCE_FALLBACK_COLORS = ['#f59e0b', '#ef4444', '#ec4899', '#64748b', '#06b6d4', '#84cc16', '#d946ef'];
 
 const NIVEAU_COLORS = {
-  'Avancé': '#3b82f6',
-  'Intermédiaire': '#f59e0b',
-  'Expert': '#10b981',
-  'Débutant': '#ef4444',
+  'Jamais conduit': '#ef4444',
+  'Débutant': '#f97316',
+  'Intermédiaire': '#84cc16',
+  'Avancé': '#22c55e',
+  'Expert': '#15803d',
 };
 
 const CONDUIT_COLORS = { 'Oui': '#10b981', 'Non': '#ef4444' };
@@ -283,8 +284,13 @@ function Stats({ data }) {
   }, [formulaires, data.eleves]);
 
   const niveauData = useMemo(() => {
-    const counts = { 'Débutant': 0, 'Intermédiaire': 0, 'Avancé': 0, 'Expert': 0 };
+    const counts = { 'Jamais conduit': 0, 'Débutant': 0, 'Intermédiaire': 0, 'Avancé': 0, 'Expert': 0 };
     allFormData.forEach(f => {
+      const dejaCond = f.deja_conduit;
+      if (dejaCond === 0 || dejaCond === '0' || dejaCond === false || dejaCond === 'Non') {
+        counts['Jamais conduit']++;
+        return;
+      }
       if (!f.niveau_scooter) return;
       const n = f.niveau_scooter.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
       if (n.includes('debut')) counts['Débutant']++;
@@ -292,10 +298,11 @@ function Stats({ data }) {
       else if (n.includes('avan')) counts['Avancé']++;
       else if (n.includes('expert')) counts['Expert']++;
     });
-    return Object.entries(counts)
-      .filter(([, v]) => v > 0)
-      .map(([name, value]) => ({ name, value }))
-      .sort((a, b) => b.value - a.value);
+    // Order: Jamais conduit, Débutant, Intermédiaire, Avancé, Expert
+    const order = ['Jamais conduit', 'Débutant', 'Intermédiaire', 'Avancé', 'Expert'];
+    return order
+      .filter(name => counts[name] > 0)
+      .map(name => ({ name, value: counts[name] }));
   }, [allFormData]);
 
   const conduiteData = useMemo(() => {
@@ -343,6 +350,17 @@ function Stats({ data }) {
     return null;
   };
 
+  const classifyInvitee = (inv) => {
+    const dejaCond = inv.deja_conduit;
+    if (dejaCond === 0 || dejaCond === '0' || dejaCond === false || dejaCond === 'Non') {
+      return 'Jamais conduit';
+    }
+    if (inv.niveau_scooter) {
+      return normalizeNiveau(inv.niveau_scooter);
+    }
+    return null;
+  };
+
   const emailToSessionDate = useMemo(() => {
     const map = {};
     sessions.forEach(s => {
@@ -363,25 +381,25 @@ function Stats({ data }) {
   const evolutionData = useMemo(() => {
     const monthMap = {};
     const initMonth = (mk) => {
-      if (!monthMap[mk]) monthMap[mk] = { 'Débutant': 0, 'Intermédiaire': 0, 'Avancé': 0, 'Expert': 0 };
+      if (!monthMap[mk]) monthMap[mk] = { 'Jamais conduit': 0, 'Débutant': 0, 'Intermédiaire': 0, 'Avancé': 0, 'Expert': 0 };
     };
 
+    // Primary source: session invitees (has date via session + deja_conduit + niveau)
     sessions.forEach(s => {
       const mk = getMonthKey(s.start_time);
       if (!mk) return;
       (s.invitees || []).forEach(inv => {
-        if (!inv.niveau_scooter) return;
-        const niveau = normalizeNiveau(inv.niveau_scooter);
-        if (!niveau) return;
+        const cat = classifyInvitee(inv);
+        if (!cat) return;
         initMonth(mk);
-        monthMap[mk][niveau]++;
+        monthMap[mk][cat]++;
       });
     });
 
+    // Fallback: formulaires if sessions yielded nothing
     if (Object.keys(monthMap).length === 0) {
       const forms = data.raw?.formulaires || [];
       forms.forEach(f => {
-        if (!f.niveau_scooter) return;
         let dateField = resolveDate(f);
         if (!dateField) {
           const email = (f.email || f.email_address || '').toLowerCase().trim();
@@ -390,10 +408,10 @@ function Stats({ data }) {
         if (!dateField) return;
         const mk = getMonthKey(dateField);
         if (!mk) return;
-        const niveau = normalizeNiveau(f.niveau_scooter);
-        if (!niveau) return;
+        const cat = classifyInvitee(f);
+        if (!cat) return;
         initMonth(mk);
-        monthMap[mk][niveau]++;
+        monthMap[mk][cat]++;
       });
     }
 
@@ -685,10 +703,11 @@ function Stats({ data }) {
                 labelStyle={{ color: '#e8eaed' }}
               />
               <Legend wrapperStyle={{ fontSize: 11 }} />
-              <Line type="monotone" dataKey="Débutant" stroke="#ef4444" strokeWidth={2} dot={{ r: 3 }} />
-              <Line type="monotone" dataKey="Intermédiaire" stroke="#f59e0b" strokeWidth={2} dot={{ r: 3 }} />
-              <Line type="monotone" dataKey="Avancé" stroke="#3b82f6" strokeWidth={2} dot={{ r: 3 }} />
-              <Line type="monotone" dataKey="Expert" stroke="#10b981" strokeWidth={2} dot={{ r: 3 }} />
+              <Line type="monotone" dataKey="Jamais conduit" stroke="#ef4444" strokeWidth={2} dot={{ r: 3 }} />
+              <Line type="monotone" dataKey="Débutant" stroke="#f97316" strokeWidth={2} dot={{ r: 3 }} />
+              <Line type="monotone" dataKey="Intermédiaire" stroke="#84cc16" strokeWidth={2} dot={{ r: 3 }} />
+              <Line type="monotone" dataKey="Avancé" stroke="#22c55e" strokeWidth={2} dot={{ r: 3 }} />
+              <Line type="monotone" dataKey="Expert" stroke="#15803d" strokeWidth={2} dot={{ r: 3 }} />
             </LineChart>
           </ResponsiveContainer>
         ) : (
