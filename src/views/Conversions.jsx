@@ -196,23 +196,14 @@ function Conversions() {
     if (!data) return [];
     const map = {};
     (data.daily || []).forEach(d => { map[d.date] = { ...d }; });
+    // Add inscriptions for dates that have no plausible data but do have bookings
     (data.inscriptions_hors_plausible || []).forEach(d => {
       if (!map[d.date]) {
         map[d.date] = { date: d.date, visitors: 0, pageviews: 0, bounce_rate: 0, visit_duration: 0, visits: 0, inscriptions: d.inscriptions, ca: d.ca, taux_conversion: 0 };
       }
     });
-    // Fill gaps: every date in range should have a row
-    if (dateStart && dateEnd) {
-      const cur = new Date(dateStart + 'T00:00:00');
-      const end = new Date(dateEnd + 'T00:00:00');
-      while (cur <= end) {
-        const key = cur.toISOString().slice(0, 10);
-        if (!map[key]) {
-          map[key] = { date: key, visitors: 0, pageviews: 0, bounce_rate: 0, visit_duration: 0, visits: 0, inscriptions: 0, ca: 0, taux_conversion: 0 };
-        }
-        cur.setDate(cur.getDate() + 1);
-      }
-    }
+    // Only add zero-rows for dates that have plausible visitors nearby (no artificial padding)
+    // Days with 0 visitors AND 0 inscriptions are omitted (no artificial rows)
     return Object.values(map).sort((a, b) => a.date.localeCompare(b.date));
   }, [data, dateStart, dateEnd]);
 
