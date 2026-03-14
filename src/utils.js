@@ -22,6 +22,20 @@ export async function fetchTrafficConversion(year) {
   return res.json();
 }
 
+export async function fetchPage125Stats(dateStart, dateEnd) {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/get_page125_stats`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'apikey': SUPABASE_ANON_KEY,
+      'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+    },
+    body: JSON.stringify({ p_date_start: dateStart, p_date_end: dateEnd }),
+  });
+  if (!res.ok) throw new Error(`Erreur API stats 125: ${res.status}`);
+  return res.json();
+}
+
 export function normalizePhone(phone) {
   if (!phone) return '';
   const digits = phone.replace(/\D/g, '');

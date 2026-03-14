@@ -1,16 +1,18 @@
 import { useState, useEffect } from 'react';
-import { CalendarDays, Users, BarChart3, LogOut } from 'lucide-react';
+import { CalendarDays, Users, BarChart3, Target, LogOut } from 'lucide-react';
 import './App.css';
 import { fetchDashboardData, consolidateData } from './utils';
 import Agenda from './views/Agenda';
 import Eleves from './views/Eleves';
 import Stats from './views/Stats';
+import Conversions from './views/Conversions';
 import LoginPage from './components/LoginPage';
 
 const TABS = [
   { id: 'agenda', label: 'Agenda', icon: CalendarDays },
   { id: 'eleves', label: 'Élèves', icon: Users },
   { id: 'stats', label: 'Stats', icon: BarChart3 },
+  { id: 'conversions', label: 'Conversions', icon: Target },
 ];
 
 function App() {
@@ -95,6 +97,7 @@ function App() {
         {tab === 'agenda' && <Agenda data={data} />}
         {tab === 'eleves' && <Eleves data={data} />}
         {tab === 'stats' && <Stats data={data} />}
+        {tab === 'conversions' && <Conversions />}
       </main>
     </div>
   );
