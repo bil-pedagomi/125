@@ -1,8 +1,9 @@
 import { useState, useMemo } from 'react';
-import { Search } from 'lucide-react';
+import { Search, Download, Eye } from 'lucide-react';
 import { formatDate, getMonthKey, getMonthLabel, getSessionType } from '../utils';
 import Avatar from '../components/Avatar';
 import PhoneLink from '../components/PhoneLink';
+import Lightbox from '../components/Lightbox';
 
 const NIVEAU_BADGE = {
   'Débutant': { bg: 'rgba(239,68,68,0.15)', color: '#ef4444' },
@@ -93,7 +94,7 @@ const ELEVES_CSS = `
 }
 `;
 
-function EleveExpandedPanel({ eleve }) {
+function EleveExpandedPanel({ eleve, onViewDoc }) {
   const niveauStyle = NIVEAU_BADGE[eleve.niveau_scooter] || { bg: 'rgba(107,113,148,0.15)', color: '#64748b' };
   const appels = eleve.resumes_appels || [];
 
@@ -145,18 +146,36 @@ function EleveExpandedPanel({ eleve }) {
               { label: 'Photo', url: eleve.photo_identite },
               { label: 'Signature', url: eleve.photo_signature },
             ].map(doc => (
-              <button
-                key={doc.label}
-                onClick={doc.url ? (ev) => { ev.stopPropagation(); window.open(doc.url, '_blank'); } : undefined}
-                style={{
-                  fontSize: 10, padding: '5px 8px', borderRadius: 6, border: 'none', fontWeight: 600,
-                  cursor: doc.url ? 'pointer' : 'default',
-                  background: doc.url ? 'rgba(16,185,129,0.15)' : '#334155',
-                  color: doc.url ? '#10b981' : '#64748b',
-                }}
-              >
-                {doc.label}
-              </button>
+              <div key={doc.label} style={{
+                display: 'flex', alignItems: 'center', borderRadius: 6, overflow: 'hidden',
+                background: doc.url ? 'rgba(16,185,129,0.15)' : '#334155',
+                color: doc.url ? '#10b981' : '#64748b',
+                fontSize: 10, fontWeight: 600,
+              }}>
+                <span style={{ flex: 1, padding: '5px 8px' }}>{doc.label}</span>
+                {doc.url && (
+                  <>
+                    <a
+                      href={doc.url}
+                      download
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={(ev) => ev.stopPropagation()}
+                      title="Télécharger"
+                      style={{ display: 'flex', alignItems: 'center', padding: '5px 6px', color: 'inherit', borderLeft: '1px solid rgba(255,255,255,0.1)' }}
+                    >
+                      <Download size={11} />
+                    </a>
+                    <button
+                      onClick={(ev) => { ev.stopPropagation(); onViewDoc({ url: doc.url, label: doc.label }); }}
+                      title="Visualiser"
+                      style={{ display: 'flex', alignItems: 'center', padding: '5px 6px', color: 'inherit', background: 'none', border: 'none', borderLeft: '1px solid rgba(255,255,255,0.1)', cursor: 'pointer' }}
+                    >
+                      <Eye size={11} />
+                    </button>
+                  </>
+                )}
+              </div>
             ))}
           </div>
         </div>
@@ -243,6 +262,7 @@ function Eleves({ data }) {
   const [monthFilter, setMonthFilter] = useState('all');
   const [typeFilter, setTypeFilter] = useState('all');
   const [expandedId, setExpandedId] = useState(null);
+  const [lightbox, setLightbox] = useState(null);
 
   const months = useMemo(() => {
     const set = new Set();
@@ -356,7 +376,7 @@ function Eleves({ data }) {
                   </span>
                 </div>
               </div>
-              {isExpanded && <EleveExpandedPanel eleve={e} />}
+              {isExpanded && <EleveExpandedPanel eleve={e} onViewDoc={setLightbox} />}
             </div>
           );
         })}
@@ -366,6 +386,7 @@ function Eleves({ data }) {
           </p>
         )}
       </div>
+      {lightbox && <Lightbox url={lightbox.url} label={lightbox.label} onClose={() => setLightbox(null)} />}
     </div>
   );
 }

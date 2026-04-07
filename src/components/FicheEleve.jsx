@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { ChevronDown, ChevronUp, FileText, ExternalLink, AlertTriangle } from 'lucide-react';
+import { ChevronDown, ChevronUp, FileText, Download, Eye, AlertTriangle } from 'lucide-react';
 import Avatar from './Avatar';
+import Lightbox from './Lightbox';
 import { formatDate } from '../utils';
 
 const NIVEAU_COLORS = {
@@ -10,24 +11,43 @@ const NIVEAU_COLORS = {
   'Expert': { bg: 'var(--green-bg)', color: 'var(--green)' },
 };
 
-function DocBadge({ label, url }) {
+function DocBadge({ label, url, onView }) {
   const exists = !!url;
+  if (!exists) {
+    return (
+      <span className="doc-badge doc-badge-missing">
+        {label}
+      </span>
+    );
+  }
   return (
-    <a
-      href={exists ? url : undefined}
-      target={exists ? '_blank' : undefined}
-      rel="noopener noreferrer"
-      className={`doc-badge ${exists ? 'doc-badge-ok' : 'doc-badge-missing'}`}
-      style={{ pointerEvents: exists ? 'auto' : 'none' }}
-    >
-      <ExternalLink size={10} />
-      {label}
-    </a>
+    <span className="doc-badge doc-badge-ok" style={{ gap: 0, paddingRight: 0 }}>
+      <span style={{ marginRight: 4 }}>{label}</span>
+      <a
+        href={url}
+        download
+        target="_blank"
+        rel="noopener noreferrer"
+        onClick={(e) => e.stopPropagation()}
+        title="Télécharger"
+        style={{ display: 'inline-flex', alignItems: 'center', padding: '2px 5px', color: 'inherit', borderLeft: '1px solid rgba(255,255,255,0.15)', marginLeft: 2 }}
+      >
+        <Download size={10} />
+      </a>
+      <button
+        onClick={(e) => { e.stopPropagation(); e.preventDefault(); onView(); }}
+        title="Visualiser"
+        style={{ display: 'inline-flex', alignItems: 'center', padding: '2px 5px', color: 'inherit', background: 'none', border: 'none', borderLeft: '1px solid rgba(255,255,255,0.15)', cursor: 'pointer' }}
+      >
+        <Eye size={10} />
+      </button>
+    </span>
   );
 }
 
 export default function FicheEleve({ invitee, defaultOpen = false }) {
   const [open, setOpen] = useState(defaultOpen);
+  const [lightbox, setLightbox] = useState(null);
 
   if (!invitee) return null;
 
@@ -140,14 +160,15 @@ export default function FicheEleve({ invitee, defaultOpen = false }) {
           <div className="fiche-eleve-docs">
             <div className="label" style={{ marginBottom: 6 }}>Documents</div>
             <div className="fiche-docs-row">
-              <DocBadge label="Permis recto" url={invitee.photo_permis_recto} />
-              <DocBadge label="Permis verso" url={invitee.photo_permis_verso} />
-              <DocBadge label="Photo ID" url={invitee.photo_identite} />
-              <DocBadge label="Signature" url={invitee.photo_signature} />
+              <DocBadge label="Permis recto" url={invitee.photo_permis_recto} onView={() => setLightbox({ url: invitee.photo_permis_recto, label: 'Permis recto' })} />
+              <DocBadge label="Permis verso" url={invitee.photo_permis_verso} onView={() => setLightbox({ url: invitee.photo_permis_verso, label: 'Permis verso' })} />
+              <DocBadge label="Photo ID" url={invitee.photo_identite} onView={() => setLightbox({ url: invitee.photo_identite, label: 'Photo ID' })} />
+              <DocBadge label="Signature" url={invitee.photo_signature} onView={() => setLightbox({ url: invitee.photo_signature, label: 'Signature' })} />
             </div>
           </div>
         </div>
       )}
+      {lightbox && <Lightbox url={lightbox.url} label={lightbox.label} onClose={() => setLightbox(null)} />}
     </div>
   );
 }
