@@ -1,5 +1,5 @@
-import { useState, useMemo } from 'react';
-import { CalendarDays, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, FileCheck, PhoneCall, Users, Euro } from 'lucide-react';
+import { useState, useMemo, useCallback } from 'react';
+import { CalendarDays, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, FileCheck, PhoneCall, Users, Euro, ChevronRight as ChevronRightIcon } from 'lucide-react';
 import { formatDateShort, formatDate, getMonthKey, getMonthLabel, getSessionType, getNiveauStyle } from '../utils';
 import FicheEleve from '../components/FicheEleve';
 import Avatar from '../components/Avatar';
@@ -8,6 +8,182 @@ import useIsMobile from '../hooks/useIsMobile';
 
 const PRICE = 199;
 const DAY_NAMES = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
+
+const NIVEAU_ORDER = {
+  'Jamais conduit': 0, 'Débutant': 1, 'Intermédiaire': 2,
+  'Avancé': 3, 'Expert': 4, 'Formulaire manquant': 5, 'Non renseigné': 5,
+};
+
+const TABLE_CSS = `
+.inv-table { width: 100%; border-collapse: separate; border-spacing: 0; border-radius: 8px; overflow: hidden; }
+.inv-table thead th {
+  background: #1a1f30; color: #64748b; font-size: 11px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.5px; padding: 10px 12px;
+  text-align: left; cursor: pointer; user-select: none; white-space: nowrap;
+  border-bottom: 1px solid #1e2640; transition: color 0.15s;
+}
+.inv-table thead th:hover { color: #94a3b8; }
+.inv-table thead th .sort-arrow { margin-left: 4px; font-size: 10px; opacity: 0.7; }
+.inv-table tbody tr { cursor: pointer; transition: background 0.12s; }
+.inv-table tbody tr:nth-child(4n+1), .inv-table tbody tr:nth-child(4n+2) { background: #12172a; }
+.inv-table tbody tr:nth-child(4n+3), .inv-table tbody tr:nth-child(4n) { background: #161b2e; }
+.inv-table tbody tr:hover { background: #1e2640 !important; }
+.inv-table tbody td { padding: 10px 12px; font-size: 13px; color: #e2e8f0; border-bottom: 1px solid #1e2640; vertical-align: middle; }
+.inv-table tbody tr.inv-fiche-row td { padding: 0; background: #0f172a !important; }
+.inv-table .td-eleve { display: flex; align-items: center; gap: 10px; }
+.inv-table .td-eleve-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 160px; }
+.inv-table .td-contact { font-size: 11px; color: #94a3b8; font-family: var(--font-mono); }
+.inv-table .td-contact-email { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 180px; }
+.inv-table .td-montant { font-family: var(--font-mono); font-weight: 600; font-size: 12px; color: #e2e8f0; white-space: nowrap; }
+.inv-table .td-action { text-align: center; color: #64748b; }
+.inv-table .td-action svg { transition: transform 0.2s; }
+.inv-table tbody tr:hover .td-action svg { color: var(--accent); }
+@media (max-width: 768px) {
+  .inv-table .col-contact, .inv-table .col-montant { display: none; }
+  .inv-table thead th { padding: 8px 8px; font-size: 10px; }
+  .inv-table tbody td { padding: 8px 8px; font-size: 12px; }
+  .inv-table .td-eleve-name { max-width: 100px; }
+}
+`;
+
+function InviteesTable({ invitees, isMobile }) {
+  const [sortKey, setSortKey] = useState('niveau');
+  const [sortDir, setSortDir] = useState('asc');
+  const [ficheId, setFicheId] = useState(null);
+
+  const handleSort = useCallback((key) => {
+    if (sortKey === key) {
+      setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortKey(key);
+      setSortDir('asc');
+    }
+  }, [sortKey]);
+
+  const sorted = useMemo(() => {
+    const arr = [...invitees];
+    const dir = sortDir === 'asc' ? 1 : -1;
+    arr.sort((a, b) => {
+      switch (sortKey) {
+        case 'nom': {
+          const na = (a.name || '').toLowerCase();
+          const nb = (b.name || '').toLowerCase();
+          return na < nb ? -dir : na > nb ? dir : 0;
+        }
+        case 'niveau': {
+          const sa = getNiveauStyle(a);
+          const sb = getNiveauStyle(b);
+          const oa = NIVEAU_ORDER[sa.label] ?? 5;
+          const ob = NIVEAU_ORDER[sb.label] ?? 5;
+          return (oa - ob) * dir;
+        }
+        case 'formulaire': {
+          const fa = a.form_rempli ? 1 : 0;
+          const fb = b.form_rempli ? 1 : 0;
+          return (fa - fb) * dir;
+        }
+        case 'appels': {
+          return ((a.nb_appels || 0) - (b.nb_appels || 0)) * dir;
+        }
+        default: return 0;
+      }
+    });
+    return arr;
+  }, [invitees, sortKey, sortDir]);
+
+  const arrow = (key) => {
+    if (sortKey !== key) return null;
+    return <span className="sort-arrow">{sortDir === 'asc' ? '↑' : '↓'}</span>;
+  };
+
+  const toggleFiche = (inv, e) => {
+    e.stopPropagation();
+    const id = inv.email || inv.name;
+    setFicheId(ficheId === id ? null : id);
+  };
+
+  return (
+    <>
+      <style>{TABLE_CSS}</style>
+      <table className="inv-table">
+        <thead>
+          <tr>
+            <th onClick={() => handleSort('nom')}>Élève{arrow('nom')}</th>
+            <th onClick={() => handleSort('niveau')}>Niveau{arrow('niveau')}</th>
+            <th className="col-contact" onClick={() => handleSort('nom')}>Contact</th>
+            <th onClick={() => handleSort('formulaire')}>Formulaire{arrow('formulaire')}</th>
+            <th onClick={() => handleSort('appels')}>Appels{arrow('appels')}</th>
+            <th className="col-montant">Montant</th>
+            <th style={{ width: 40, cursor: 'default' }}></th>
+          </tr>
+        </thead>
+        <tbody>
+          {sorted.map((inv, i) => {
+            const nStyle = getNiveauStyle(inv);
+            const id = inv.email || inv.name || `inv-${i}`;
+            const isOpen = ficheId === id;
+            return [
+              <tr
+                key={id}
+                onClick={(e) => toggleFiche(inv, e)}
+                style={{
+                  borderLeft: `3px solid ${nStyle.borderColor}`,
+                }}
+              >
+                <td>
+                  <div className="td-eleve">
+                    <Avatar name={inv.name} photoUrl={inv.photo_identite} size={32} />
+                    <span className="td-eleve-name">{inv.name || '—'}</span>
+                  </div>
+                </td>
+                <td>
+                  <span style={{
+                    fontSize: 11, padding: '3px 9px', borderRadius: 12,
+                    fontWeight: 500, background: nStyle.badgeBg, color: nStyle.badgeColor,
+                    whiteSpace: 'nowrap', display: 'inline-block',
+                  }}>
+                    {nStyle.label}
+                  </span>
+                </td>
+                <td className="col-contact">
+                  <div className="td-contact">
+                    <span className="td-contact-email">{inv.email || '—'}</span>
+                    {inv.phone && <PhoneLink phone={inv.phone} />}
+                  </div>
+                </td>
+                <td>
+                  {inv.form_rempli
+                    ? <span className="invitee-badge green">OK</span>
+                    : <span className="invitee-badge orange">Manquant</span>}
+                </td>
+                <td>
+                  <span style={{ color: inv.a_appele ? '#ef4444' : '#64748b', fontFamily: 'var(--font-mono)', fontSize: 12 }}>
+                    {inv.nb_appels || 0} appel{(inv.nb_appels || 0) > 1 ? 's' : ''}
+                  </span>
+                </td>
+                <td className="col-montant">
+                  <span className="td-montant">{PRICE} €</span>
+                </td>
+                <td className="td-action">
+                  {isOpen
+                    ? <ChevronUp size={14} />
+                    : <ChevronDown size={14} />}
+                </td>
+              </tr>,
+              isOpen && (
+                <tr key={`${id}-fiche`} className="inv-fiche-row">
+                  <td colSpan={7}>
+                    <FicheEleve invitee={inv} defaultOpen={true} />
+                  </td>
+                </tr>
+              ),
+            ];
+          })}
+        </tbody>
+      </table>
+    </>
+  );
+}
 
 function toDateKey(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -171,62 +347,7 @@ function Agenda({ data }) {
         </div>
 
         {displayInvitees.length > 0 ? (
-          <div className="session-detail-list">
-            {displayInvitees.map((inv, i) => {
-              const isFallback = inv._fallback;
-              const nStyle = isFallback ? null : getNiveauStyle(inv);
-              return (
-                <div key={i} className="session-detail-invitee-wrapper" style={nStyle ? {
-                  borderLeft: `3px solid ${nStyle.borderColor}`,
-                  borderRadius: '0 8px 8px 0',
-                  background: nStyle.bgColor,
-                } : undefined}>
-                  <div className="session-detail-invitee">
-                    <Avatar name={inv.name} photoUrl={inv.photo_identite} size={40} />
-                    <div className="invitee-info">
-                      <span className="invitee-name">{inv.name || '—'}</span>
-                      <span className="invitee-email">{inv.email || '—'}</span>
-                      {inv.phone && <PhoneLink phone={inv.phone} />}
-                      {inv.payment_amount && (
-                        <span className="invitee-payment">
-                          {inv.payment_amount} {inv.payment_currency || '€'}
-                        </span>
-                      )}
-                    </div>
-                    <div className="invitee-badges">
-                      {isFallback ? (
-                        <span className="invitee-badge grey">Données partielles</span>
-                      ) : (
-                        <>
-                          {nStyle && (
-                            <span style={{
-                              fontSize: '11px', padding: '3px 9px', borderRadius: '12px',
-                              fontWeight: 500, background: nStyle.badgeBg, color: nStyle.badgeColor,
-                              whiteSpace: 'nowrap',
-                            }}>
-                              {nStyle.label}
-                            </span>
-                          )}
-                          {inv.form_rempli
-                            ? <span className="invitee-badge green">Formulaire OK</span>
-                            : <span className="invitee-badge orange">Formulaire manquant</span>
-                          }
-                          {inv.a_appele
-                            ? <span className="invitee-badge red">{inv.nb_appels} appel{inv.nb_appels > 1 ? 's' : ''}</span>
-                            : <span className="invitee-badge green">0 appel</span>
-                          }
-                          {inv.status === 'canceled' && (
-                            <span className="invitee-badge red">Annulé</span>
-                          )}
-                        </>
-                      )}
-                    </div>
-                  </div>
-                  {!isFallback && <FicheEleve invitee={inv} />}
-                </div>
-              );
-            })}
-          </div>
+          <InviteesTable invitees={displayInvitees} isMobile={isMobile} />
         ) : (
           <p className="empty-state" style={{ padding: '0.75rem 0' }}>
             Aucun élève inscrit (backfill en cours)
