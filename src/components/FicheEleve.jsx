@@ -102,18 +102,20 @@ export default function FicheEleve({ invitee, defaultOpen = false }) {
               <div className="label">Niveau scooter</div>
               <div className="value">
                 <span className="fiche-niveau-badge" style={{ background: niveauStyle.bg, color: niveauStyle.color }}>
-                  {invitee.niveau_scooter || 'Non renseigné'}
+                  {Number(invitee.deja_conduit) === 0 && (invitee.deja_conduit !== null && invitee.deja_conduit !== undefined)
+                    ? 'Jamais conduit'
+                    : invitee.niveau_scooter || 'Non renseigné'}
                 </span>
               </div>
             </div>
             <div className="fiche-eleve-field">
               <div className="label">Déjà conduit</div>
               <div className="value">
-                {invitee.deja_conduit === 1
-                  ? <span style={{ color: 'var(--green)', fontWeight: 600 }}>Oui</span>
-                  : invitee.deja_conduit === 0
-                    ? <span style={{ color: 'var(--red)', fontWeight: 600 }}>Non</span>
-                    : 'Non renseigné'}
+                {invitee.deja_conduit === null || invitee.deja_conduit === undefined
+                  ? 'Non renseigné'
+                  : Number(invitee.deja_conduit) === 1
+                    ? <span style={{ color: 'var(--green)', fontWeight: 600 }}>Oui</span>
+                    : <span style={{ color: 'var(--red)', fontWeight: 600 }}>Non</span>}
               </div>
             </div>
             <div className="fiche-eleve-field">

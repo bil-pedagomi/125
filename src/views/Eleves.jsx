@@ -95,12 +95,18 @@ const ELEVES_CSS = `
 `;
 
 function EleveExpandedPanel({ eleve, onViewDoc }) {
-  const niveauStyle = NIVEAU_BADGE[eleve.niveau_scooter] || { bg: 'rgba(107,113,148,0.15)', color: '#64748b' };
+  const isJamaisConduit = eleve.deja_conduit !== null && eleve.deja_conduit !== undefined && Number(eleve.deja_conduit) === 0;
+  const niveauLabel = isJamaisConduit ? 'Jamais conduit' : (eleve.niveau_scooter || 'Non renseigné');
+  const niveauStyle = isJamaisConduit
+    ? { bg: 'rgba(226,75,74,0.15)', color: '#E24B4A' }
+    : (NIVEAU_BADGE[eleve.niveau_scooter] || { bg: 'rgba(107,113,148,0.15)', color: '#64748b' });
   const appels = eleve.resumes_appels || [];
 
   const profilRows = [
-    { label: 'Niveau', value: eleve.niveau_scooter, badge: true },
-    { label: 'Déjà conduit', value: Number(eleve.deja_conduit) === 1 ? 'Oui' : Number(eleve.deja_conduit) === 0 ? 'Non' : 'Non renseigné', color: Number(eleve.deja_conduit) === 1 ? '#10b981' : '#ef4444' },
+    { label: 'Niveau', value: niveauLabel, badge: true },
+    { label: 'Déjà conduit',
+      value: (eleve.deja_conduit === null || eleve.deja_conduit === undefined) ? 'Non renseigné' : Number(eleve.deja_conduit) === 1 ? 'Oui' : 'Non',
+      color: Number(eleve.deja_conduit) === 1 ? '#10b981' : '#ef4444' },
     eleve.occasions_conduite && { label: 'Occasions', value: eleve.occasions_conduite },
     eleve.derniere_conduite && { label: 'Dernière conduite', value: formatDate(eleve.derniere_conduite) },
     { label: 'Source', value: eleve.source_acquisition || '—' },
@@ -193,7 +199,7 @@ function EleveExpandedPanel({ eleve, onViewDoc }) {
                   fontSize: 12, fontWeight: 600, padding: '2px 10px', borderRadius: 6,
                   background: niveauStyle.bg, color: niveauStyle.color,
                 }}>
-                  {eleve.niveau_scooter || 'Non renseigné'}
+                  {niveauLabel}
                 </span>
               ) : (
                 <span style={{
