@@ -2,14 +2,7 @@ import { useState } from 'react';
 import { ChevronDown, ChevronUp, FileText, Download, Eye, AlertTriangle } from 'lucide-react';
 import Avatar from './Avatar';
 import Lightbox from './Lightbox';
-import { formatDate } from '../utils';
-
-const NIVEAU_COLORS = {
-  'Débutant': { bg: 'var(--red-bg)', color: 'var(--red)' },
-  'Intermédiaire': { bg: 'var(--orange-bg)', color: 'var(--orange)' },
-  'Avancé': { bg: 'rgba(96, 165, 250, 0.15)', color: 'var(--blue)' },
-  'Expert': { bg: 'var(--green-bg)', color: 'var(--green)' },
-};
+import { formatDate, getNiveauStyle } from '../utils';
 
 function DocBadge({ label, url, onView }) {
   const exists = !!url;
@@ -71,7 +64,9 @@ export default function FicheEleve({ invitee, defaultOpen = false }) {
     );
   }
 
-  const niveauStyle = NIVEAU_COLORS[invitee.niveau_scooter] || { bg: 'rgba(107,113,148,0.15)', color: 'var(--text-muted)' };
+  const nStyle = getNiveauStyle(invitee);
+  const rawDeja = invitee.deja_conduit;
+  const dejaCon = (rawDeja === null || rawDeja === undefined) ? null : Number(rawDeja);
 
   return (
     <div className="fiche-eleve-wrapper">
@@ -101,19 +96,17 @@ export default function FicheEleve({ invitee, defaultOpen = false }) {
             <div className="fiche-eleve-field">
               <div className="label">Niveau scooter</div>
               <div className="value">
-                <span className="fiche-niveau-badge" style={{ background: niveauStyle.bg, color: niveauStyle.color }}>
-                  {Number(invitee.deja_conduit) === 0 && (invitee.deja_conduit !== null && invitee.deja_conduit !== undefined)
-                    ? 'Jamais conduit'
-                    : invitee.niveau_scooter || 'Non renseigné'}
+                <span className="fiche-niveau-badge" style={{ background: nStyle.badgeBg, color: nStyle.badgeColor }}>
+                  {nStyle.label}
                 </span>
               </div>
             </div>
             <div className="fiche-eleve-field">
               <div className="label">Déjà conduit</div>
               <div className="value">
-                {invitee.deja_conduit === null || invitee.deja_conduit === undefined
+                {dejaCon === null
                   ? 'Non renseigné'
-                  : Number(invitee.deja_conduit) === 1
+                  : dejaCon === 1
                     ? <span style={{ color: 'var(--green)', fontWeight: 600 }}>Oui</span>
                     : <span style={{ color: 'var(--red)', fontWeight: 600 }}>Non</span>}
               </div>
