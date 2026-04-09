@@ -100,7 +100,7 @@ function EleveExpandedPanel({ eleve, onViewDoc }) {
 
   const profilRows = [
     { label: 'Niveau', value: eleve.niveau_scooter, badge: true },
-    { label: 'Déjà conduit', value: eleve.deja_conduit ? 'Oui' : 'Non', color: eleve.deja_conduit ? '#10b981' : '#ef4444' },
+    { label: 'Déjà conduit', value: Number(eleve.deja_conduit) === 1 ? 'Oui' : Number(eleve.deja_conduit) === 0 ? 'Non' : 'Non renseigné', color: Number(eleve.deja_conduit) === 1 ? '#10b981' : '#ef4444' },
     eleve.occasions_conduite && { label: 'Occasions', value: eleve.occasions_conduite },
     eleve.derniere_conduite && { label: 'Dernière conduite', value: formatDate(eleve.derniere_conduite) },
     { label: 'Source', value: eleve.source_acquisition || '—' },

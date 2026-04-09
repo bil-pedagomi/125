@@ -330,7 +330,11 @@ function Stats({ data }) {
     const counts = { 'Jamais conduit': 0, 'Débutant': 0, 'Intermédiaire': 0, 'Avancé': 0, 'Expert': 0 };
     allFormData.forEach(f => {
       const dejaCond = f.deja_conduit;
-      if (dejaCond === 0 || dejaCond === '0' || dejaCond === false || dejaCond === 'Non' || dejaCond == null) {
+      if (dejaCond === null || dejaCond === undefined) {
+        counts['Jamais conduit']++;
+        return;
+      }
+      if (Number(dejaCond) === 0) {
         counts['Jamais conduit']++;
         return;
       }
@@ -352,8 +356,9 @@ function Stats({ data }) {
     const counts = { 'Oui': 0, 'Non': 0 };
     allFormData.forEach(f => {
       const v = f.deja_conduit;
-      if (v === true || v === 'true' || v === 'Oui' || v === 1 || v === '1') counts['Oui']++;
-      else if (v === false || v === 'false' || v === 'Non' || v === 0 || v === '0' || v == null) counts['Non']++;
+      if (v === null || v === undefined) return;
+      if (Number(v) === 1) counts['Oui']++;
+      else if (Number(v) === 0) counts['Non']++;
     });
     return Object.entries(counts)
       .filter(([, v]) => v > 0)
@@ -395,7 +400,10 @@ function Stats({ data }) {
 
   const classifyInvitee = (inv) => {
     const dejaCond = inv.deja_conduit;
-    if (dejaCond === 0 || dejaCond === '0' || dejaCond === false || dejaCond === 'Non' || dejaCond == null) {
+    if (dejaCond === null || dejaCond === undefined) {
+      return 'Jamais conduit';
+    }
+    if (Number(dejaCond) === 0) {
       return 'Jamais conduit';
     }
     if (inv.niveau_scooter) {

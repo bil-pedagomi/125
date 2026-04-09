@@ -88,16 +88,22 @@ export function getSessionType(session) {
 }
 
 export function getNiveauStyle(eleve) {
-  const dejaCon = eleve?.deja_conduit;
+  const rawDeja = eleve?.deja_conduit;
   const niveau = eleve?.niveau_scooter;
   const formRempli = eleve?.form_rempli;
 
-  if (!formRempli && dejaCon == null) {
+  // Normalize deja_conduit: bigint from Supabase can arrive as number, string, or boolean
+  const dejaCon = (rawDeja === null || rawDeja === undefined) ? null : Number(rawDeja);
+
+  // Formulaire manquant: no driving data at all
+  if (dejaCon === null && !niveau && !formRempli) {
     return { borderColor: '#475569', bgColor: 'transparent', badgeColor: '#475569', badgeBg: 'rgba(71,85,105,0.1)', label: 'Formulaire manquant' };
   }
-  if (dejaCon === 0 || dejaCon === '0') {
+  // Jamais conduit: explicit 0 (never drove)
+  if (dejaCon === 0) {
     return { borderColor: '#E24B4A', bgColor: 'rgba(226,75,74,0.06)', badgeColor: '#E24B4A', badgeBg: 'rgba(226,75,74,0.15)', label: 'Jamais conduit' };
   }
+  // Has driven — check niveau
   if (niveau?.startsWith('Débutant')) {
     return { borderColor: '#D85A30', bgColor: 'rgba(216,90,48,0.06)', badgeColor: '#D85A30', badgeBg: 'rgba(216,90,48,0.15)', label: 'Débutant' };
   }
