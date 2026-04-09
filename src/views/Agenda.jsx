@@ -1,7 +1,8 @@
 import { useState, useMemo, useCallback } from 'react';
-import { CalendarDays, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, FileCheck, PhoneCall, Users, Euro, ChevronRight as ChevronRightIcon } from 'lucide-react';
+import { CalendarDays, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, FileCheck, PhoneCall, Users, Euro, UsersRound } from 'lucide-react';
 import { formatDateShort, formatDate, getMonthKey, getMonthLabel, getSessionType, getNiveauStyle } from '../utils';
 import FicheEleve from '../components/FicheEleve';
+import GroupesPanel from '../components/GroupesPanel';
 import Avatar from '../components/Avatar';
 import PhoneLink from '../components/PhoneLink';
 import useIsMobile from '../hooks/useIsMobile';
@@ -229,6 +230,7 @@ function Agenda({ data }) {
   const [monthFilter, setMonthFilter] = useState(currentMonth);
   const [typeFilter, setTypeFilter] = useState('all');
   const [expandedId, setExpandedId] = useState(null);
+  const [detailView, setDetailView] = useState('table'); // 'table' | 'groupes'
 
   const months = useMemo(() => {
     const set = new Set();
@@ -331,23 +333,53 @@ function Agenda({ data }) {
         <div style={{ fontSize: 13, color: 'var(--accent-light)', fontWeight: 600, marginBottom: 8 }}>
           {formatDateShort(s.start_time)} — {s.event_type_name || 'Formation 125'}
         </div>
-        <div className="session-detail-summary">
-          <div className="session-detail-stat">
-            <Users size={14} />
-            <span>{nbEleves} élève{nbEleves > 1 ? 's' : ''}</span>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+          <div className="session-detail-summary" style={{ flex: 1 }}>
+            <div className="session-detail-stat">
+              <Users size={14} />
+              <span>{nbEleves} élève{nbEleves > 1 ? 's' : ''}</span>
+            </div>
+            <div className="session-detail-stat">
+              <Euro size={14} />
+              <span>{ca.toLocaleString('fr-FR')} €</span>
+            </div>
+            <div className="session-detail-stat">
+              <FileCheck size={14} />
+              <span>Formulaires : {tauxForm}% ({nbFormRempli}/{nbEleves})</span>
+            </div>
           </div>
-          <div className="session-detail-stat">
-            <Euro size={14} />
-            <span>{ca.toLocaleString('fr-FR')} €</span>
-          </div>
-          <div className="session-detail-stat">
-            <FileCheck size={14} />
-            <span>Formulaires : {tauxForm}% ({nbFormRempli}/{nbEleves})</span>
-          </div>
+          {displayInvitees.length > 1 && (
+            <div style={{ display: 'flex', gap: 4 }}>
+              <button
+                onClick={() => setDetailView('table')}
+                style={{
+                  padding: '5px 12px', borderRadius: 6, border: 'none', fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                  background: detailView === 'table' ? 'rgba(108,99,255,0.2)' : 'rgba(107,113,148,0.1)',
+                  color: detailView === 'table' ? '#a5b4fc' : '#64748b',
+                }}
+              >
+                Liste
+              </button>
+              <button
+                onClick={() => setDetailView('groupes')}
+                style={{
+                  padding: '5px 12px', borderRadius: 6, border: 'none', fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', gap: 4,
+                  background: detailView === 'groupes' ? 'rgba(108,99,255,0.2)' : 'rgba(107,113,148,0.1)',
+                  color: detailView === 'groupes' ? '#a5b4fc' : '#64748b',
+                }}
+              >
+                <UsersRound size={12} />
+                Groupes
+              </button>
+            </div>
+          )}
         </div>
 
         {displayInvitees.length > 0 ? (
-          <InviteesTable invitees={displayInvitees} isMobile={isMobile} />
+          detailView === 'groupes'
+            ? <GroupesPanel session={s} />
+            : <InviteesTable invitees={displayInvitees} isMobile={isMobile} />
         ) : (
           <p className="empty-state" style={{ padding: '0.75rem 0' }}>
             Aucun élève inscrit (backfill en cours)

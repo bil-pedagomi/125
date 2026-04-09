@@ -1,0 +1,326 @@
+import { useState, useEffect, useCallback } from 'react';
+import { RefreshCw, Check, AlertTriangle, Pencil } from 'lucide-react';
+import Avatar from './Avatar';
+import { getNiveauStyle, getNiveauLabel, getNiveauScore, repartirGroupes, fetchGroupes, saveGroupes } from '../utils';
+import useIsMobile from '../hooks/useIsMobile';
+
+const CRENEAU_DOT = {
+  matin: { color: '#378ADD', title: 'Préfère le matin' },
+  aprem: { color: '#E24B4A', title: 'Préfère l\'après-midi' },
+  indif: { color: '#475569', title: 'Pas de préférence' },
+};
+
+function getCreneauType(pref) {
+  if (!pref) return 'indif';
+  if (pref.includes('après-midi') || pref.includes('13h') || pref.includes('15h')) return 'aprem';
+  if (pref.includes('matin') || pref.includes('8h') || pref.includes('10h') || pref.includes('12h')) return 'matin';
+  return 'indif';
+}
+
+function getValidationErrors(groupes) {
+  const errors = [];
+  groupes.forEach(g => {
+    if (g.membres.length > 6) {
+      errors.push({ type: 'error', groupe: g.numero, msg: `Groupe ${g.numero} dépasse 6 élèves (${g.membres.length})` });
+    }
+    const scooterCount = g.membres.filter(m => m.role === 'scooter').length;
+    if (scooterCount > 3) {
+      errors.push({ type: 'warn', groupe: g.numero, msg: `Groupe ${g.numero} : ${scooterCount} scooters (max 3)` });
+    }
+    g.membres.forEach(m => {
+      const label = getNiveauLabel(m);
+      if (m.role === 'scooter' && (label === 'Jamais conduit' || label === 'Formulaire manquant')) {
+        errors.push({ type: 'error', groupe: g.numero, msg: `${m.name || m.email} ne peut pas être en scooter (${label})` });
+      }
+    });
+  });
+  return errors;
+}
+
+const CSS = `
+.groupes-container { display: flex; gap: 16px; flex-wrap: wrap; }
+.groupe-col { flex: 1; min-width: 280px; background: #12172a; border-radius: 10px; border: 1px solid #1e2640; overflow: hidden; }
+.groupe-header { padding: 14px 16px; background: #1a1f30; border-bottom: 1px solid #1e2640; }
+.groupe-header-title { font-size: 15px; font-weight: 700; color: #e2e8f0; display: flex; align-items: center; gap: 8px; }
+.groupe-header-sub { font-size: 12px; color: #64748b; margin-top: 4px; }
+.groupe-section-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; padding: 8px 16px 4px; color: #64748b; }
+.groupe-membre { display: flex; align-items: center; gap: 10px; padding: 8px 16px; border-bottom: 1px solid #1e2640; transition: background 0.12s; }
+.groupe-membre:hover { background: #1e2640; }
+.groupe-membre-info { flex: 1; min-width: 0; }
+.groupe-membre-name { font-size: 13px; font-weight: 600; color: #e2e8f0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: flex; align-items: center; gap: 6px; }
+.groupe-membre-niveau { font-size: 11px; }
+.groupe-membre-actions { display: flex; gap: 4px; opacity: 0; transition: opacity 0.15s; }
+.groupe-membre:hover .groupe-membre-actions { opacity: 1; }
+.groupe-btn-sm { font-size: 10px; padding: 3px 8px; border-radius: 5px; border: none; cursor: pointer; font-weight: 600; white-space: nowrap; }
+.groupes-toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
+.groupes-toolbar button { display: flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 8px; border: none; font-weight: 600; font-size: 12px; cursor: pointer; transition: background 0.15s, opacity 0.15s; }
+.groupes-toolbar button:disabled { opacity: 0.5; cursor: not-allowed; }
+.groupes-alert { display: flex; align-items: center; gap: 6px; padding: 8px 12px; border-radius: 6px; font-size: 12px; font-weight: 500; margin-bottom: 8px; }
+.groupes-alert.error { background: rgba(226,75,74,0.12); color: #E24B4A; }
+.groupes-alert.warn { background: rgba(245,158,11,0.12); color: #f59e0b; }
+.groupes-alert.success { background: rgba(16,185,129,0.12); color: #10b981; }
+.creneau-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+@media (max-width: 768px) {
+  .groupes-container { flex-direction: column; }
+  .groupe-membre-actions { opacity: 1; }
+}
+`;
+
+export default function GroupesPanel({ session }) {
+  const invitees = session.invitees || [];
+  const eventUuid = session.id;
+  const dateFormation = session.start_time ? session.start_time.split('T')[0] : null;
+  const isMobile = useIsMobile();
+
+  const [groupes, setGroupes] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  // Load existing groups from DB
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const rows = await fetchGroupes(eventUuid);
+        if (cancelled) return;
+        if (rows.length > 0) {
+          // Rebuild groupes from DB rows, merging with invitee data
+          const groupeMap = {};
+          rows.forEach(r => {
+            if (!groupeMap[r.groupe_numero]) {
+              groupeMap[r.groupe_numero] = { numero: r.groupe_numero, heure: r.heure_debut, membres: [] };
+            }
+            const inv = invitees.find(i => i.email === r.email) || { name: r.email, email: r.email };
+            groupeMap[r.groupe_numero].membres.push({
+              ...inv,
+              role: r.role,
+              modifie_manuellement: r.modifie_manuellement || false,
+              ordre_passage: r.ordre_passage,
+              note: r.note || '',
+            });
+          });
+          setGroupes(Object.values(groupeMap).sort((a, b) => a.numero - b.numero));
+        }
+      } catch (e) {
+        console.error('Erreur chargement groupes:', e);
+      }
+      if (!cancelled) setLoading(false);
+    })();
+    return () => { cancelled = true; };
+  }, [eventUuid]);
+
+  const generer = useCallback(() => {
+    const result = repartirGroupes(invitees);
+    setGroupes(result);
+    setSaved(false);
+  }, [invitees]);
+
+  const sauvegarder = useCallback(async () => {
+    if (!groupes || !dateFormation) return;
+    setSaving(true);
+    try {
+      await saveGroupes(eventUuid, dateFormation, groupes);
+      setSaved(true);
+    } catch (e) {
+      console.error('Erreur sauvegarde:', e);
+    }
+    setSaving(false);
+  }, [groupes, eventUuid, dateFormation]);
+
+  const resetGroupe = useCallback((gIdx) => {
+    const result = repartirGroupes(invitees);
+    setGroupes(prev => {
+      const next = [...prev];
+      if (result[gIdx]) next[gIdx] = result[gIdx];
+      return next;
+    });
+    setSaved(false);
+  }, [invitees]);
+
+  const moveToGroupe = useCallback((fromG, memIdx, toG) => {
+    setGroupes(prev => {
+      const next = prev.map(g => ({ ...g, membres: [...g.membres] }));
+      const [moved] = next[fromG].membres.splice(memIdx, 1);
+      moved.modifie_manuellement = true;
+      next[toG].membres.push(moved);
+      return next;
+    });
+    setSaved(false);
+  }, []);
+
+  const toggleRole = useCallback((gIdx, memIdx) => {
+    setGroupes(prev => {
+      const next = prev.map(g => ({ ...g, membres: [...g.membres] }));
+      const m = { ...next[gIdx].membres[memIdx] };
+      const label = getNiveauLabel(m);
+      if (m.role === 'voiture' && (label === 'Jamais conduit' || label === 'Formulaire manquant')) {
+        return prev; // Block: can't put on scooter
+      }
+      m.role = m.role === 'scooter' ? 'voiture' : 'scooter';
+      m.modifie_manuellement = true;
+      next[gIdx].membres[memIdx] = m;
+      return next;
+    });
+    setSaved(false);
+  }, []);
+
+  if (loading) {
+    return <div style={{ padding: 16, color: '#64748b', fontSize: 13 }}>Chargement des groupes...</div>;
+  }
+
+  const errors = groupes ? getValidationErrors(groupes) : [];
+  const hasBlockers = errors.some(e => e.type === 'error');
+  const allValid = groupes && errors.length === 0;
+
+  return (
+    <div style={{ marginTop: 12 }}>
+      <style>{CSS}</style>
+
+      <div className="groupes-toolbar">
+        <button
+          onClick={generer}
+          style={{ background: '#6c63ff', color: '#fff' }}
+        >
+          <RefreshCw size={13} />
+          {groupes ? 'Regénérer' : 'Générer les groupes'}
+        </button>
+        {groupes && (
+          <button
+            onClick={sauvegarder}
+            disabled={saving || hasBlockers}
+            style={{ background: allValid ? 'rgba(16,185,129,0.2)' : 'rgba(107,113,148,0.15)', color: allValid ? '#10b981' : '#64748b' }}
+          >
+            <Check size={13} />
+            {saving ? 'Sauvegarde...' : saved ? 'Sauvegardé' : 'Confirmer les groupes'}
+          </button>
+        )}
+      </div>
+
+      {errors.map((err, i) => (
+        <div key={i} className={`groupes-alert ${err.type}`}>
+          <AlertTriangle size={13} />
+          {err.msg}
+        </div>
+      ))}
+      {allValid && groupes && (
+        <div className="groupes-alert success">
+          <Check size={13} />
+          Tous les groupes sont valides
+        </div>
+      )}
+
+      {groupes && (
+        <div className="groupes-container">
+          {groupes.map((g, gIdx) => {
+            const scooters = g.membres.filter(m => m.role === 'scooter');
+            const voitures = g.membres.filter(m => m.role === 'voiture');
+            return (
+              <div key={g.numero} className="groupe-col">
+                <div className="groupe-header">
+                  <div className="groupe-header-title">
+                    <span>{g.numero === 1 ? '🕙' : g.numero === 2 ? '🕑' : '🕕'}</span>
+                    Groupe {g.numero} — {g.heure}
+                  </div>
+                  <div className="groupe-header-sub">
+                    {g.membres.length} élève{g.membres.length > 1 ? 's' : ''} · {scooters.length} 🛵 · {voitures.length} 🚗
+                    <button
+                      onClick={() => resetGroupe(gIdx)}
+                      className="groupe-btn-sm"
+                      style={{ marginLeft: 8, background: 'rgba(107,113,148,0.15)', color: '#94a3b8' }}
+                    >
+                      Réinitialiser
+                    </button>
+                  </div>
+                </div>
+
+                {scooters.length > 0 && (
+                  <>
+                    <div className="groupe-section-label">🛵 Scooters ({scooters.length})</div>
+                    {scooters.map((m, mi) => {
+                      const realIdx = g.membres.indexOf(m);
+                      return renderMembre(m, gIdx, realIdx, groupes.length, moveToGroupe, toggleRole, isMobile);
+                    })}
+                  </>
+                )}
+
+                {voitures.length > 0 && (
+                  <>
+                    <div className="groupe-section-label">🚗 Voiture ({voitures.length})</div>
+                    {voitures.map((m, mi) => {
+                      const realIdx = g.membres.indexOf(m);
+                      return renderMembre(m, gIdx, realIdx, groupes.length, moveToGroupe, toggleRole, isMobile);
+                    })}
+                  </>
+                )}
+
+                {g.membres.length === 0 && (
+                  <div style={{ padding: 16, color: '#475569', fontSize: 12, textAlign: 'center' }}>Aucun élève</div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {!groupes && (
+        <div style={{ padding: 24, textAlign: 'center', color: '#64748b', fontSize: 13 }}>
+          Cliquez sur "Générer les groupes" pour répartir automatiquement les élèves.
+        </div>
+      )}
+    </div>
+  );
+}
+
+function renderMembre(m, gIdx, memIdx, nbGroupes, moveToGroupe, toggleRole, isMobile) {
+  const nStyle = getNiveauStyle(m);
+  const label = nStyle.label;
+  const crType = getCreneauType(m.creneau_prefere);
+  const dot = CRENEAU_DOT[crType];
+  const canToggleScooter = !(m.role === 'voiture' && (label === 'Jamais conduit' || label === 'Formulaire manquant'));
+
+  return (
+    <div
+      key={m.email || m.name}
+      className="groupe-membre"
+      style={{ borderLeft: `3px solid ${nStyle.borderColor}` }}
+    >
+      <Avatar name={m.name} photoUrl={m.photo_identite} size={28} />
+      <div className="groupe-membre-info">
+        <div className="groupe-membre-name">
+          {m.name || m.email || '—'}
+          {m.modifie_manuellement && <Pencil size={10} style={{ color: '#f59e0b', flexShrink: 0 }} title="Modification manuelle" />}
+          <span className="creneau-dot" style={{ background: dot.color }} title={dot.title} />
+        </div>
+        <span className="groupe-membre-niveau" style={{ color: nStyle.badgeColor }}>
+          {label}
+        </span>
+      </div>
+      <div className="groupe-membre-actions">
+        <button
+          className="groupe-btn-sm"
+          onClick={() => toggleRole(gIdx, memIdx)}
+          disabled={!canToggleScooter && m.role === 'voiture'}
+          style={{
+            background: m.role === 'scooter' ? 'rgba(226,75,74,0.15)' : 'rgba(16,185,129,0.15)',
+            color: m.role === 'scooter' ? '#E24B4A' : '#10b981',
+          }}
+          title={m.role === 'scooter' ? 'Passer en voiture' : 'Passer en scooter'}
+        >
+          {m.role === 'scooter' ? '🛵→🚗' : '🚗→🛵'}
+        </button>
+        {nbGroupes > 1 && Array.from({ length: nbGroupes }, (_, i) => i).filter(i => i !== gIdx).map(targetG => (
+          <button
+            key={targetG}
+            className="groupe-btn-sm"
+            onClick={() => moveToGroupe(gIdx, memIdx, targetG)}
+            style={{ background: 'rgba(108,99,255,0.15)', color: '#a5b4fc' }}
+            title={`Déplacer vers Groupe ${targetG + 1}`}
+          >
+            → G{targetG + 1}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}

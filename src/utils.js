@@ -115,6 +115,139 @@ export function getNiveauStyle(eleve) {
   return { borderColor: '#475569', bgColor: 'transparent', badgeColor: '#475569', badgeBg: 'rgba(71,85,105,0.1)', label: 'Non renseigné' };
 }
 
+// --- Groupes Formation 125 ---
+
+const SCORE_NIVEAU = {
+  'Expert': 5, 'Avancé': 4, 'Intermédiaire': 3,
+  'Débutant': 2, 'Jamais conduit': 1, 'Formulaire manquant': 0, 'Non renseigné': 0,
+};
+
+const HEURES_GROUPES = ['10:00', '14:00', '18:00'];
+const MAX_PAR_GROUPE = 6;
+const MAX_SCOOTERS = 3;
+
+export function getNiveauLabel(inv) {
+  return getNiveauStyle(inv).label;
+}
+
+export function getNiveauScore(inv) {
+  return SCORE_NIVEAU[getNiveauLabel(inv)] ?? 0;
+}
+
+export function repartirGroupes(invitees) {
+  // 1. Sort by niveau score DESC
+  const sorted = [...invitees].sort((a, b) => getNiveauScore(b) - getNiveauScore(a));
+
+  // 2. Number of groups needed
+  const nbGroupes = Math.max(1, Math.ceil(sorted.length / MAX_PAR_GROUPE));
+
+  // 3. Round-robin distribution for level homogeneity
+  const buckets = Array.from({ length: nbGroupes }, () => []);
+  sorted.forEach((inv, i) => {
+    buckets[i % nbGroupes].push(inv);
+  });
+
+  // 4. Preference-based swaps: try to match creneau_prefere
+  if (nbGroupes >= 2) {
+    for (let gi = 0; gi < nbGroupes; gi++) {
+      for (let mi = 0; mi < buckets[gi].length; mi++) {
+        const inv = buckets[gi][mi];
+        const pref = inv.creneau_prefere || '';
+        const wantsPM = pref.includes('après-midi') || pref.includes('13h') || pref.includes('15h');
+        const wantsAM = pref.includes('matin') || pref.includes('8h') || pref.includes('10h');
+        const targetGroup = wantsPM ? 1 : wantsAM ? 0 : -1;
+        if (targetGroup === -1 || targetGroup === gi) continue;
+        if (targetGroup >= nbGroupes) continue;
+        // Find a swap candidate with equivalent score in target group
+        const myScore = getNiveauScore(inv);
+        const swapIdx = buckets[targetGroup].findIndex((other, oi) => {
+          const otherPref = other.creneau_prefere || '';
+          const otherWantsPM = otherPref.includes('après-midi') || otherPref.includes('13h') || otherPref.includes('15h');
+          const otherWantsAM = otherPref.includes('matin') || otherPref.includes('8h') || otherPref.includes('10h');
+          const otherTarget = otherWantsPM ? 1 : otherWantsAM ? 0 : -1;
+          // Only swap if the other person prefers our group or is indifferent
+          return Math.abs(getNiveauScore(other) - myScore) <= 1
+            && (otherTarget === gi || otherTarget === -1);
+        });
+        if (swapIdx !== -1) {
+          const tmp = buckets[targetGroup][swapIdx];
+          buckets[targetGroup][swapIdx] = inv;
+          buckets[gi][mi] = tmp;
+        }
+      }
+    }
+  }
+
+  // 5. Assign roles: in each group, sort by score DESC, top 3 with score >= 2 → scooter
+  return buckets.map((membres, idx) => {
+    const sortedMembres = [...membres].sort((a, b) => getNiveauScore(b) - getNiveauScore(a));
+    let scooterCount = 0;
+    const membresWithRole = sortedMembres.map((inv) => {
+      const label = getNiveauLabel(inv);
+      const canScooter = scooterCount < MAX_SCOOTERS
+        && label !== 'Jamais conduit'
+        && label !== 'Formulaire manquant'
+        && label !== 'Non renseigné';
+      const role = canScooter ? 'scooter' : 'voiture';
+      if (canScooter) scooterCount++;
+      return { ...inv, role, modifie_manuellement: false, ordre_passage: null, note: '' };
+    });
+    return {
+      numero: idx + 1,
+      heure: HEURES_GROUPES[idx] || `${10 + idx * 4}:00`,
+      membres: membresWithRole,
+    };
+  });
+}
+
+const SB_HEADERS = {
+  'Content-Type': 'application/json',
+  'apikey': SUPABASE_ANON_KEY,
+  'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+  'Prefer': 'return=representation',
+};
+
+export async function fetchGroupes(eventUuid) {
+  const url = `${SUPABASE_URL}/rest/v1/formation_groupes?calendly_event_uuid=eq.${encodeURIComponent(eventUuid)}&order=groupe_numero,ordre_passage`;
+  const res = await fetch(url, { headers: SB_HEADERS });
+  if (!res.ok) throw new Error(`Erreur fetch groupes: ${res.status}`);
+  return res.json();
+}
+
+export async function saveGroupes(eventUuid, dateFormation, groupes) {
+  // Build rows for upsert
+  const rows = [];
+  groupes.forEach(g => {
+    g.membres.forEach((m, i) => {
+      rows.push({
+        calendly_event_uuid: eventUuid,
+        date_formation: dateFormation,
+        groupe_numero: g.numero,
+        heure_debut: g.heure,
+        invitee_uuid: m.id || null,
+        email: m.email,
+        role: m.role,
+        ordre_passage: i + 1,
+        modifie_manuellement: m.modifie_manuellement || false,
+        note: m.note || '',
+      });
+    });
+  });
+
+  // Delete existing rows for this event, then insert
+  await fetch(
+    `${SUPABASE_URL}/rest/v1/formation_groupes?calendly_event_uuid=eq.${encodeURIComponent(eventUuid)}`,
+    { method: 'DELETE', headers: SB_HEADERS }
+  );
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/formation_groupes`, {
+    method: 'POST',
+    headers: SB_HEADERS,
+    body: JSON.stringify(rows),
+  });
+  if (!res.ok) throw new Error(`Erreur save groupes: ${res.status}`);
+  return res.json();
+}
+
 export function consolidateData(raw) {
   const { sessions = [], invitees = [], formulaires = [], resumes_appels = [], kpis = {} } = raw;
 
