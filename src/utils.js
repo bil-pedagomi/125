@@ -88,32 +88,28 @@ export function getSessionType(session) {
 }
 
 export function getNiveauStyle(eleve) {
-  const rawDeja = eleve?.deja_conduit;
   const niveau = eleve?.niveau_scooter;
   const formRempli = eleve?.form_rempli;
 
-  // Normalize deja_conduit: bigint from Supabase can arrive as number, string, or boolean
-  const dejaCon = (rawDeja === null || rawDeja === undefined) ? null : Number(rawDeja);
-
-  // Formulaire manquant: no driving data at all
-  if (dejaCon === null && !niveau && !formRempli) {
+  // Pas de formulaire du tout
+  if (!formRempli) {
     return { borderColor: '#475569', bgColor: 'transparent', badgeColor: '#475569', badgeBg: 'rgba(71,85,105,0.1)', label: 'Formulaire manquant' };
   }
-  // Jamais conduit: explicit 0 (never drove)
-  if (dejaCon === 0) {
+  // Formulaire rempli mais niveau null → jamais conduit (logique Typeform)
+  if (!niveau) {
     return { borderColor: '#E24B4A', bgColor: 'rgba(226,75,74,0.06)', badgeColor: '#E24B4A', badgeBg: 'rgba(226,75,74,0.15)', label: 'Jamais conduit' };
   }
-  // Has driven — check niveau
-  if (niveau?.startsWith('Débutant')) {
+  // Niveau renseigné → lire la valeur
+  if (niveau.startsWith('Débutant')) {
     return { borderColor: '#D85A30', bgColor: 'rgba(216,90,48,0.06)', badgeColor: '#D85A30', badgeBg: 'rgba(216,90,48,0.15)', label: 'Débutant' };
   }
-  if (niveau?.startsWith('Intermédiaire')) {
+  if (niveau.startsWith('Intermédiaire')) {
     return { borderColor: '#378ADD', bgColor: 'rgba(55,138,221,0.06)', badgeColor: '#378ADD', badgeBg: 'rgba(55,138,221,0.15)', label: 'Intermédiaire' };
   }
-  if (niveau?.startsWith('Avancé')) {
+  if (niveau.startsWith('Avancé')) {
     return { borderColor: '#97C459', bgColor: 'rgba(151,196,89,0.06)', badgeColor: '#97C459', badgeBg: 'rgba(151,196,89,0.15)', label: 'Avancé' };
   }
-  if (niveau?.startsWith('Expert')) {
+  if (niveau.startsWith('Expert')) {
     return { borderColor: '#3B6D11', bgColor: 'rgba(59,109,17,0.08)', badgeColor: '#7fc95a', badgeBg: 'rgba(59,109,17,0.2)', label: 'Expert' };
   }
   return { borderColor: '#475569', bgColor: 'transparent', badgeColor: '#475569', badgeBg: 'rgba(71,85,105,0.1)', label: 'Non renseigné' };

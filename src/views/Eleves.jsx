@@ -5,13 +5,6 @@ import Avatar from '../components/Avatar';
 import PhoneLink from '../components/PhoneLink';
 import Lightbox from '../components/Lightbox';
 
-const NIVEAU_BADGE = {
-  'Débutant': { bg: 'rgba(239,68,68,0.15)', color: '#ef4444' },
-  'Intermédiaire': { bg: 'rgba(245,158,11,0.15)', color: '#f59e0b' },
-  'Avancé': { bg: 'rgba(59,130,246,0.15)', color: '#3b82f6' },
-  'Expert': { bg: 'rgba(16,185,129,0.15)', color: '#10b981' },
-};
-
 const ELEVES_CSS = `
 .eleve-row {
   display: grid;
@@ -95,18 +88,17 @@ const ELEVES_CSS = `
 `;
 
 function EleveExpandedPanel({ eleve, onViewDoc }) {
-  const isJamaisConduit = eleve.deja_conduit !== null && eleve.deja_conduit !== undefined && Number(eleve.deja_conduit) === 0;
-  const niveauLabel = isJamaisConduit ? 'Jamais conduit' : (eleve.niveau_scooter || 'Non renseigné');
-  const niveauStyle = isJamaisConduit
-    ? { bg: 'rgba(226,75,74,0.15)', color: '#E24B4A' }
-    : (NIVEAU_BADGE[eleve.niveau_scooter] || { bg: 'rgba(107,113,148,0.15)', color: '#64748b' });
+  const nStyle = getNiveauStyle(eleve);
+  const niveauBadgeStyle = { bg: nStyle.badgeBg, color: nStyle.badgeColor };
+  const isJamais = nStyle.label === 'Jamais conduit';
+  const isFormManquant = nStyle.label === 'Formulaire manquant';
   const appels = eleve.resumes_appels || [];
 
   const profilRows = [
-    { label: 'Niveau', value: niveauLabel, badge: true },
+    { label: 'Niveau', value: nStyle.label, badge: true },
     { label: 'Déjà conduit',
-      value: (eleve.deja_conduit === null || eleve.deja_conduit === undefined) ? 'Non renseigné' : Number(eleve.deja_conduit) === 1 ? 'Oui' : 'Non',
-      color: Number(eleve.deja_conduit) === 1 ? '#10b981' : '#ef4444' },
+      value: isJamais ? 'Non' : isFormManquant ? 'Non renseigné' : 'Oui',
+      color: isJamais ? '#ef4444' : isFormManquant ? undefined : '#10b981' },
     eleve.occasions_conduite && { label: 'Occasions', value: eleve.occasions_conduite },
     eleve.derniere_conduite && { label: 'Dernière conduite', value: formatDate(eleve.derniere_conduite) },
     { label: 'Source', value: eleve.source_acquisition || '—' },
@@ -197,9 +189,9 @@ function EleveExpandedPanel({ eleve, onViewDoc }) {
               {row.badge ? (
                 <span style={{
                   fontSize: 12, fontWeight: 600, padding: '2px 10px', borderRadius: 6,
-                  background: niveauStyle.bg, color: niveauStyle.color,
+                  background: niveauBadgeStyle.bg, color: niveauBadgeStyle.color,
                 }}>
-                  {niveauLabel}
+                  {nStyle.label}
                 </span>
               ) : (
                 <span style={{

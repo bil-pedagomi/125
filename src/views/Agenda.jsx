@@ -290,7 +290,7 @@ function Agenda({ data }) {
     const nbFormRempli = allInvitees.filter(i => i.form_rempli).length;
     const pctForm = totalEleves > 0 ? Math.round((nbFormRempli / totalEleves) * 100) : 0;
     const withForm = allInvitees.filter(i => i.form_rempli);
-    const nbDejaConduit = withForm.filter(i => Number(i.deja_conduit) === 1).length;
+    const nbDejaConduit = withForm.filter(i => !!i.niveau_scooter).length;
     const pctDejaConduit = withForm.length > 0 ? Math.round((nbDejaConduit / withForm.length) * 100) : 0;
     const niveaux = { 'Débutant': 0, 'Intermédiaire': 0, 'Avancé': 0, 'Expert': 0 };
     withForm.forEach(i => {

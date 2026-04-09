@@ -329,16 +329,10 @@ function Stats({ data }) {
   const niveauData = useMemo(() => {
     const counts = { 'Jamais conduit': 0, 'Débutant': 0, 'Intermédiaire': 0, 'Avancé': 0, 'Expert': 0 };
     allFormData.forEach(f => {
-      const dejaCond = f.deja_conduit;
-      if (dejaCond === null || dejaCond === undefined) {
+      if (!f.niveau_scooter) {
         counts['Jamais conduit']++;
         return;
       }
-      if (Number(dejaCond) === 0) {
-        counts['Jamais conduit']++;
-        return;
-      }
-      if (!f.niveau_scooter) return;
       const n = f.niveau_scooter.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
       if (n.includes('debut')) counts['Débutant']++;
       else if (n.includes('interm')) counts['Intermédiaire']++;
@@ -355,10 +349,8 @@ function Stats({ data }) {
   const conduiteData = useMemo(() => {
     const counts = { 'Oui': 0, 'Non': 0 };
     allFormData.forEach(f => {
-      const v = f.deja_conduit;
-      if (v === null || v === undefined) return;
-      if (Number(v) === 1) counts['Oui']++;
-      else if (Number(v) === 0) counts['Non']++;
+      if (f.niveau_scooter) counts['Oui']++;
+      else counts['Non']++;
     });
     return Object.entries(counts)
       .filter(([, v]) => v > 0)
@@ -399,11 +391,7 @@ function Stats({ data }) {
   };
 
   const classifyInvitee = (inv) => {
-    const dejaCond = inv.deja_conduit;
-    if (dejaCond === null || dejaCond === undefined) {
-      return 'Jamais conduit';
-    }
-    if (Number(dejaCond) === 0) {
+    if (!inv.niveau_scooter) {
       return 'Jamais conduit';
     }
     if (inv.niveau_scooter) {

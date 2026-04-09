@@ -65,8 +65,7 @@ export default function FicheEleve({ invitee, defaultOpen = false }) {
   }
 
   const nStyle = getNiveauStyle(invitee);
-  const rawDeja = invitee.deja_conduit;
-  const dejaCon = (rawDeja === null || rawDeja === undefined) ? null : Number(rawDeja);
+  const isJamais = nStyle.label === 'Jamais conduit';
 
   return (
     <div className="fiche-eleve-wrapper">
@@ -104,11 +103,11 @@ export default function FicheEleve({ invitee, defaultOpen = false }) {
             <div className="fiche-eleve-field">
               <div className="label">Déjà conduit</div>
               <div className="value">
-                {dejaCon === null
-                  ? 'Non renseigné'
-                  : dejaCon === 1
-                    ? <span style={{ color: 'var(--green)', fontWeight: 600 }}>Oui</span>
-                    : <span style={{ color: 'var(--red)', fontWeight: 600 }}>Non</span>}
+                {isJamais
+                  ? <span style={{ color: 'var(--red)', fontWeight: 600 }}>Non</span>
+                  : nStyle.label === 'Formulaire manquant'
+                    ? 'Non renseigné'
+                    : <span style={{ color: 'var(--green)', fontWeight: 600 }}>Oui</span>}
               </div>
             </div>
             <div className="fiche-eleve-field">
