@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { Search, Download, Eye } from 'lucide-react';
-import { formatDate, getMonthKey, getMonthLabel, getSessionType } from '../utils';
+import { formatDate, getMonthKey, getMonthLabel, getSessionType, getNiveauStyle } from '../utils';
 import Avatar from '../components/Avatar';
 import PhoneLink from '../components/PhoneLink';
 import Lightbox from '../components/Lightbox';
@@ -339,9 +339,18 @@ function Eleves({ data }) {
           const session = sessionByEventId[e.calendly_event_id] || null;
           const key = e.email || e.name || `eleve-${i}`;
           const isExpanded = expandedId === key;
+          const nStyle = getNiveauStyle(e);
           return (
             <div key={key}>
-              <div className={`eleve-row${isExpanded ? ' expanded' : ''}`} onClick={() => setExpandedId(isExpanded ? null : key)}>
+              <div
+                className={`eleve-row${isExpanded ? ' expanded' : ''}`}
+                onClick={() => setExpandedId(isExpanded ? null : key)}
+                style={{
+                  borderLeft: `3px solid ${nStyle.borderColor}`,
+                  borderRadius: '0 6px 6px 0',
+                  background: nStyle.bgColor,
+                }}
+              >
                 {/* Desktop cells */}
                 <span className="er-photo">
                   <Avatar name={e.name} photoUrl={e.photo_identite} size={isExpanded ? 80 : 40} style={{ transition: 'all 0.3s ease', flexShrink: 0 }} />
@@ -354,7 +363,15 @@ function Eleves({ data }) {
                     ? <span className="invitee-badge green">Form OK</span>
                     : <span className="invitee-badge orange">Manquant</span>}
                 </span>
-                <span className="er-niveau">{e.niveau_scooter || '—'}</span>
+                <span className="er-niveau">
+                  <span style={{
+                    fontSize: '11px', padding: '3px 9px', borderRadius: '12px',
+                    fontWeight: 500, background: nStyle.badgeBg, color: nStyle.badgeColor,
+                    whiteSpace: 'nowrap',
+                  }}>
+                    {nStyle.label}
+                  </span>
+                </span>
                 <span className="er-appels" style={{ color: e.a_appele ? '#ef4444' : '#64748b' }}>
                   {e.nb_appels || 0} appel{(e.nb_appels || 0) > 1 ? 's' : ''}
                 </span>
@@ -367,10 +384,16 @@ function Eleves({ data }) {
                   <span style={{ fontSize: 11, color: '#64748b', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{e.email || '—'}</span>
                 </div>
                 <div className="er-mobile-l3">
+                  <span style={{
+                    fontSize: '11px', padding: '3px 9px', borderRadius: '12px',
+                    fontWeight: 500, background: nStyle.badgeBg, color: nStyle.badgeColor,
+                    whiteSpace: 'nowrap',
+                  }}>
+                    {nStyle.label}
+                  </span>
                   {e.form_rempli
                     ? <span className="invitee-badge green">Form OK</span>
                     : <span className="invitee-badge orange">Manquant</span>}
-                  {e.niveau_scooter && <span className="invitee-badge grey">{e.niveau_scooter}</span>}
                   <span style={{ fontSize: 10, color: e.a_appele ? '#ef4444' : '#64748b', fontFamily: 'var(--font-mono)' }}>
                     {e.nb_appels || 0} appel{(e.nb_appels || 0) > 1 ? 's' : ''}
                   </span>

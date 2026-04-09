@@ -87,6 +87,32 @@ export function getSessionType(session) {
   return 'we';
 }
 
+export function getNiveauStyle(eleve) {
+  const dejaCon = eleve?.deja_conduit;
+  const niveau = eleve?.niveau_scooter;
+  const formRempli = eleve?.form_rempli;
+
+  if (!formRempli && dejaCon == null) {
+    return { borderColor: '#475569', bgColor: 'transparent', badgeColor: '#475569', badgeBg: 'rgba(71,85,105,0.1)', label: 'Formulaire manquant' };
+  }
+  if (dejaCon === 0 || dejaCon === '0') {
+    return { borderColor: '#E24B4A', bgColor: 'rgba(226,75,74,0.06)', badgeColor: '#E24B4A', badgeBg: 'rgba(226,75,74,0.15)', label: 'Jamais conduit' };
+  }
+  if (niveau?.startsWith('Débutant')) {
+    return { borderColor: '#D85A30', bgColor: 'rgba(216,90,48,0.06)', badgeColor: '#D85A30', badgeBg: 'rgba(216,90,48,0.15)', label: 'Débutant' };
+  }
+  if (niveau?.startsWith('Intermédiaire')) {
+    return { borderColor: '#378ADD', bgColor: 'rgba(55,138,221,0.06)', badgeColor: '#378ADD', badgeBg: 'rgba(55,138,221,0.15)', label: 'Intermédiaire' };
+  }
+  if (niveau?.startsWith('Avancé')) {
+    return { borderColor: '#97C459', bgColor: 'rgba(151,196,89,0.06)', badgeColor: '#97C459', badgeBg: 'rgba(151,196,89,0.15)', label: 'Avancé' };
+  }
+  if (niveau?.startsWith('Expert')) {
+    return { borderColor: '#3B6D11', bgColor: 'rgba(59,109,17,0.08)', badgeColor: '#7fc95a', badgeBg: 'rgba(59,109,17,0.2)', label: 'Expert' };
+  }
+  return { borderColor: '#475569', bgColor: 'transparent', badgeColor: '#475569', badgeBg: 'rgba(71,85,105,0.1)', label: 'Non renseigné' };
+}
+
 export function consolidateData(raw) {
   const { sessions = [], invitees = [], formulaires = [], resumes_appels = [], kpis = {} } = raw;
 

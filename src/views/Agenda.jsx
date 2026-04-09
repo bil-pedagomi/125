@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { CalendarDays, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, FileCheck, PhoneCall, Users, Euro } from 'lucide-react';
-import { formatDateShort, formatDate, getMonthKey, getMonthLabel, getSessionType } from '../utils';
+import { formatDateShort, formatDate, getMonthKey, getMonthLabel, getSessionType, getNiveauStyle } from '../utils';
 import FicheEleve from '../components/FicheEleve';
 import Avatar from '../components/Avatar';
 import PhoneLink from '../components/PhoneLink';
@@ -174,8 +174,13 @@ function Agenda({ data }) {
           <div className="session-detail-list">
             {displayInvitees.map((inv, i) => {
               const isFallback = inv._fallback;
+              const nStyle = isFallback ? null : getNiveauStyle(inv);
               return (
-                <div key={i} className="session-detail-invitee-wrapper">
+                <div key={i} className="session-detail-invitee-wrapper" style={nStyle ? {
+                  borderLeft: `3px solid ${nStyle.borderColor}`,
+                  borderRadius: '0 8px 8px 0',
+                  background: nStyle.bgColor,
+                } : undefined}>
                   <div className="session-detail-invitee">
                     <Avatar name={inv.name} photoUrl={inv.photo_identite} size={40} />
                     <div className="invitee-info">
@@ -193,6 +198,15 @@ function Agenda({ data }) {
                         <span className="invitee-badge grey">Données partielles</span>
                       ) : (
                         <>
+                          {nStyle && (
+                            <span style={{
+                              fontSize: '11px', padding: '3px 9px', borderRadius: '12px',
+                              fontWeight: 500, background: nStyle.badgeBg, color: nStyle.badgeColor,
+                              whiteSpace: 'nowrap',
+                            }}>
+                              {nStyle.label}
+                            </span>
+                          )}
                           {inv.form_rempli
                             ? <span className="invitee-badge green">Formulaire OK</span>
                             : <span className="invitee-badge orange">Formulaire manquant</span>
