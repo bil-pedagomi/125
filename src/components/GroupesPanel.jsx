@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { RefreshCw, Check, AlertTriangle, Pencil } from 'lucide-react';
 import Avatar from './Avatar';
-import { getNiveauStyle, getNiveauLabel, getNiveauScore, repartirGroupes, fetchGroupes, saveGroupes, MAX_PAR_GROUPE } from '../utils';
+import { getNiveauStyle, getNiveauLabel, getNiveauScore, repartirGroupes, fetchGroupes, saveGroupes, MAX_PAR_GROUPE, computeSatisfaction } from '../utils';
 import useIsMobile from '../hooks/useIsMobile';
 
 const CRENEAU_DOT = {
@@ -172,6 +172,7 @@ export default function GroupesPanel({ session }) {
   const errors = groupes ? getValidationErrors(groupes) : [];
   const hasBlockers = errors.some(e => e.type === 'error');
   const allValid = groupes && errors.length === 0;
+  const satisfaction = groupes && groupes.length >= 2 ? computeSatisfaction(groupes) : null;
 
   return (
     <div style={{ marginTop: 12 }}>
@@ -207,6 +208,31 @@ export default function GroupesPanel({ session }) {
         <div className="groupes-alert success">
           <Check size={13} />
           Tous les groupes sont valides
+        </div>
+      )}
+
+      {satisfaction && (
+        <div style={{
+          padding: '10px 14px',
+          background: '#12172a',
+          border: '1px solid #1e2640',
+          borderRadius: 8,
+          marginBottom: 12,
+          fontSize: 12,
+        }}>
+          <div style={{ color: '#10b981', fontWeight: 600 }}>
+            ✅ Préférences respectées : {satisfaction.respected}/{satisfaction.total} élève{satisfaction.total > 1 ? 's' : ''}
+          </div>
+          {satisfaction.nonRespected > 0 && (
+            <div style={{ color: '#f59e0b', marginTop: 4, fontWeight: 500 }}>
+              ⚠️ Non respectées : {satisfaction.nonRespected} ({satisfaction.nonRespectedList.map(x => `${x.name} — préfère ${x.wants}`).join(', ')})
+            </div>
+          )}
+          {satisfaction.nonRespected > 0 && (
+            <div style={{ color: '#64748b', marginTop: 4, fontSize: 11 }}>
+              Raison : groupe matin au maximum de capacité avec buffer
+            </div>
+          )}
         </div>
       )}
 

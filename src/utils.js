@@ -134,10 +134,20 @@ export function getNiveauScore(inv) {
   return SCORE_NIVEAU[getNiveauLabel(inv)] ?? 0;
 }
 
+export function getPrefScore(val) {
+  if (!val) return 1; // indifferent
+  const s = val.toLowerCase();
+  // Après-midi first (highest specificity)
+  if (s.includes('après-midi') || s.includes('13h') || s.includes('14h') || s.includes('15h')) return 0;
+  // Tôt matin: early morning slot
+  if (s.includes('8h') || s.includes('tôt')) return 3;
+  // Matin: late morning slot (includes "Fin de matinée")
+  if (s.includes('matin') || s.includes('10h') || s.includes('11h') || s.includes('12h')) return 2;
+  return 1;
+}
+
 export function repartirGroupes(invitees) {
-  // 1. Sort by niveau score DESC
-  const sorted = [...invitees].sort((a, b) => getNiveauScore(b) - getNiveauScore(a));
-  const nbEleves = sorted.length;
+  const nbEleves = invitees.length;
 
   // Helper: assign roles within a group (top 3 qualified → scooter)
   const assignRoles = (membres) => {
@@ -155,73 +165,98 @@ export function repartirGroupes(invitees) {
     });
   };
 
-  // 2. Single group case: everyone at 10:00
+  // Single group case: everyone at 10:00
   if (nbEleves <= MAX_PAR_GROUPE) {
     return [{
       numero: 1,
       heure: HEURES_GROUPES[0],
-      membres: assignRoles(sorted),
+      membres: assignRoles(invitees),
     }];
   }
 
-  // 3. Multiple groups: fill afternoon groups to MAX first,
-  //    leave remainder in morning group to preserve buffer for last-minute bookings
   const nbGroupes = Math.ceil(nbEleves / MAX_PAR_GROUPE);
-  const remainder = nbEleves - (nbGroupes - 1) * MAX_PAR_GROUPE;
-  // Sizes: [remainder (morning), MAX, MAX, ...]
-  const groupSizes = [remainder];
-  for (let i = 1; i < nbGroupes; i++) groupSizes.push(MAX_PAR_GROUPE);
 
-  // 4. Round-robin distribution respecting size caps (for level homogeneity)
-  const buckets = Array.from({ length: nbGroupes }, () => []);
-  let cursor = 0;
-  sorted.forEach(inv => {
-    let guard = 0;
-    while (buckets[cursor].length >= groupSizes[cursor] && guard < nbGroupes) {
-      cursor = (cursor + 1) % nbGroupes;
-      guard++;
-    }
-    buckets[cursor].push(inv);
-    cursor = (cursor + 1) % nbGroupes;
+  // PHASE 1 — Sort by preference DESC (tôt matin > matin > indifferent > aprem),
+  //           then by niveau DESC as tiebreaker
+  const sorted = [...invitees].sort((a, b) => {
+    const prefDiff = getPrefScore(b.creneau_prefere) - getPrefScore(a.creneau_prefere);
+    if (prefDiff !== 0) return prefDiff;
+    return getNiveauScore(b) - getNiveauScore(a);
   });
 
-  // 5. Preference-based swaps: try to match creneau_prefere
-  if (nbGroupes >= 2) {
-    for (let gi = 0; gi < nbGroupes; gi++) {
-      for (let mi = 0; mi < buckets[gi].length; mi++) {
-        const inv = buckets[gi][mi];
-        const pref = inv.creneau_prefere || '';
-        const wantsPM = pref.includes('après-midi') || pref.includes('13h') || pref.includes('15h');
-        const wantsAM = pref.includes('matin') || pref.includes('8h') || pref.includes('10h');
-        const targetGroup = wantsPM ? 1 : wantsAM ? 0 : -1;
-        if (targetGroup === -1 || targetGroup === gi) continue;
-        if (targetGroup >= nbGroupes) continue;
-        // Find a swap candidate with equivalent score in target group
-        const myScore = getNiveauScore(inv);
-        const swapIdx = buckets[targetGroup].findIndex((other, oi) => {
-          const otherPref = other.creneau_prefere || '';
-          const otherWantsPM = otherPref.includes('après-midi') || otherPref.includes('13h') || otherPref.includes('15h');
-          const otherWantsAM = otherPref.includes('matin') || otherPref.includes('8h') || otherPref.includes('10h');
-          const otherTarget = otherWantsPM ? 1 : otherWantsAM ? 0 : -1;
-          // Only swap if the other person prefers our group or is indifferent
-          return Math.abs(getNiveauScore(other) - myScore) <= 1
-            && (otherTarget === gi || otherTarget === -1);
-        });
-        if (swapIdx !== -1) {
-          const tmp = buckets[targetGroup][swapIdx];
-          buckets[targetGroup][swapIdx] = inv;
-          buckets[gi][mi] = tmp;
-        }
-      }
+  // PHASE 2 — Slice into groups: morning gets the first `tailleMatin` students
+  //           (those with strongest morning preference), rest fills afternoon
+  //           groups to MAX. Morning group size = remainder to preserve buffer.
+  const tailleMatin = nbEleves - (nbGroupes - 1) * MAX_PAR_GROUPE;
+  const buckets = [sorted.slice(0, tailleMatin)];
+  for (let i = 1; i < nbGroupes; i++) {
+    const start = tailleMatin + (i - 1) * MAX_PAR_GROUPE;
+    buckets.push(sorted.slice(start, start + MAX_PAR_GROUPE));
+  }
+
+  // PHASE 3 — Light level homogenization (2-group case only): if niveau
+  //           imbalance > 2 points, swap indifferents between groups to
+  //           rebalance without breaking any clear preference.
+  if (nbGroupes === 2 && buckets[0].length > 0 && buckets[1].length > 0) {
+    const avg = (b) => b.reduce((s, x) => s + getNiveauScore(x), 0) / b.length;
+    for (let iter = 0; iter < 5; iter++) {
+      const diff = avg(buckets[0]) - avg(buckets[1]);
+      if (Math.abs(diff) <= 2) break;
+      const high = diff > 0 ? 0 : 1;
+      const low = 1 - high;
+      // Pick the highest-score indifferent in the overweighted group
+      const highIdx = buckets[high]
+        .map((m, i) => ({ m, i, score: getNiveauScore(m) }))
+        .filter(x => getPrefScore(x.m.creneau_prefere) === 1)
+        .sort((a, b) => b.score - a.score)[0]?.i ?? -1;
+      // Pick the lowest-score indifferent in the underweighted group
+      const lowIdx = buckets[low]
+        .map((m, i) => ({ m, i, score: getNiveauScore(m) }))
+        .filter(x => getPrefScore(x.m.creneau_prefere) === 1)
+        .sort((a, b) => a.score - b.score)[0]?.i ?? -1;
+      if (highIdx === -1 || lowIdx === -1) break;
+      if (getNiveauScore(buckets[high][highIdx]) <= getNiveauScore(buckets[low][lowIdx])) break;
+      const tmp = buckets[high][highIdx];
+      buckets[high][highIdx] = buckets[low][lowIdx];
+      buckets[low][lowIdx] = tmp;
     }
   }
 
-  // 6. Build groups with assigned roles
   return buckets.map((membres, idx) => ({
     numero: idx + 1,
     heure: HEURES_GROUPES[idx] || `${10 + idx * 4}:00`,
     membres: assignRoles(membres),
   }));
+}
+
+// Compute satisfaction score: how many students got their preferred slot.
+// - Students with no form filled are excluded from the total.
+// - Indifferent students are counted in total but not in respected/nonRespected.
+// - Clear preference (matin or aprem) counts as respected iff assigned group matches.
+export function computeSatisfaction(groupes) {
+  let respected = 0;
+  let total = 0;
+  const nonRespectedList = [];
+  groupes.forEach((g, gIdx) => {
+    g.membres.forEach(m => {
+      if (!m.form_rempli) return;
+      total++;
+      const pref = getPrefScore(m.creneau_prefere);
+      if (pref === 1) return; // indifferent: neutral, not counted in respected
+      const wantsMorning = pref >= 2;
+      const inMorning = gIdx === 0;
+      if (wantsMorning === inMorning) {
+        respected++;
+      } else {
+        nonRespectedList.push({
+          name: m.name || m.email,
+          wants: wantsMorning ? 'matin' : 'après-midi',
+          assignedGroup: gIdx + 1,
+        });
+      }
+    });
+  });
+  return { respected, total, nonRespected: nonRespectedList.length, nonRespectedList };
 }
 
 const SB_HEADERS = {
