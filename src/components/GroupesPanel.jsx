@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
-import { RefreshCw, Check, AlertTriangle, Pencil } from 'lucide-react';
+import { RefreshCw, Check, AlertTriangle, Pencil, MessageSquare, X, Copy } from 'lucide-react';
 import Avatar from './Avatar';
-import { getNiveauStyle, getNiveauLabel, getNiveauScore, repartirGroupes, fetchGroupes, saveGroupes, MAX_PAR_GROUPE, computeSatisfaction } from '../utils';
+import { getNiveauStyle, getNiveauLabel, getNiveauScore, repartirGroupes, fetchGroupes, saveGroupes, MAX_PAR_GROUPE, computeSatisfaction, fetchConfig, genererMessageSMS } from '../utils';
 import useIsMobile from '../hooks/useIsMobile';
 
 const CRENEAU_DOT = {
@@ -76,6 +76,18 @@ export default function GroupesPanel({ session }) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [config, setConfig] = useState(null);
+  const [showSMS, setShowSMS] = useState(false);
+  const [copiedEmail, setCopiedEmail] = useState(null);
+
+  // Load f125_config (adresse, téléphone, horaires…)
+  useEffect(() => {
+    let cancelled = false;
+    fetchConfig()
+      .then(c => { if (!cancelled) setConfig(c); })
+      .catch(e => console.error('Erreur chargement config:', e));
+    return () => { cancelled = true; };
+  }, []);
 
   // Load existing groups from DB
   useEffect(() => {
@@ -196,6 +208,17 @@ export default function GroupesPanel({ session }) {
             {saving ? 'Sauvegarde...' : saved ? 'Sauvegardé' : 'Confirmer les groupes'}
           </button>
         )}
+        {groupes && (
+          <button
+            onClick={() => setShowSMS(true)}
+            disabled={!config}
+            style={{ background: 'rgba(108,99,255,0.15)', color: '#a5b4fc' }}
+            title={!config ? 'Chargement de la config…' : 'Voir les SMS à envoyer'}
+          >
+            <MessageSquare size={13} />
+            Voir les SMS
+          </button>
+        )}
       </div>
 
       {errors.map((err, i) => (
@@ -314,6 +337,98 @@ export default function GroupesPanel({ session }) {
       {!groupes && (
         <div style={{ padding: 24, textAlign: 'center', color: '#64748b', fontSize: 13 }}>
           Cliquez sur "Générer les groupes" pour répartir automatiquement les élèves.
+        </div>
+      )}
+
+      {showSMS && groupes && config && session.start_time && (
+        <div
+          onClick={() => setShowSMS(false)}
+          style={{
+            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            zIndex: 1000, padding: 16,
+          }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              background: '#0e1222', border: '1px solid #1e2640', borderRadius: 12,
+              maxWidth: 720, width: '100%', maxHeight: '90vh', display: 'flex', flexDirection: 'column',
+            }}
+          >
+            <div style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              padding: '14px 18px', borderBottom: '1px solid #1e2640',
+            }}>
+              <div>
+                <div style={{ fontSize: 15, fontWeight: 700, color: '#e2e8f0' }}>
+                  SMS de convocation
+                </div>
+                <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
+                  {groupes.reduce((n, g) => n + g.membres.length, 0)} messages — session du {new Intl.DateTimeFormat('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(new Date(session.start_time))}
+                </div>
+              </div>
+              <button
+                onClick={() => setShowSMS(false)}
+                style={{
+                  background: 'transparent', border: 'none', color: '#94a3b8',
+                  cursor: 'pointer', padding: 4, display: 'flex',
+                }}
+                aria-label="Fermer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div style={{ overflowY: 'auto', padding: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {groupes.flatMap(g => g.membres.map(m => {
+                const prenom = (m.name || '').trim().split(/\s+/)[0] || (m.email || '').split('@')[0];
+                const msg = genererMessageSMS(prenom, new Date(session.start_time), g.numero, config);
+                const key = `${g.numero}-${m.email || m.name}`;
+                return (
+                  <div key={key} style={{
+                    background: '#12172a', border: '1px solid #1e2640', borderRadius: 8, padding: 12,
+                  }}>
+                    <div style={{
+                      display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
+                      marginBottom: 8,
+                    }}>
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: '#e2e8f0', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {m.name || m.email}
+                        </div>
+                        <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
+                          Groupe {g.numero} — {g.heure} · {m.phone || 'pas de téléphone'}
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => {
+                          navigator.clipboard.writeText(msg);
+                          setCopiedEmail(key);
+                          setTimeout(() => setCopiedEmail(null), 1500);
+                        }}
+                        className="groupe-btn-sm"
+                        style={{
+                          background: copiedEmail === key ? 'rgba(16,185,129,0.2)' : 'rgba(108,99,255,0.15)',
+                          color: copiedEmail === key ? '#10b981' : '#a5b4fc',
+                          display: 'flex', alignItems: 'center', gap: 4, padding: '6px 10px',
+                        }}
+                      >
+                        {copiedEmail === key ? <Check size={11} /> : <Copy size={11} />}
+                        {copiedEmail === key ? 'Copié' : 'Copier'}
+                      </button>
+                    </div>
+                    <div style={{
+                      fontSize: 12, color: '#cbd5e1', lineHeight: 1.5,
+                      background: '#0e1222', border: '1px solid #1e2640', borderRadius: 6, padding: 10,
+                      fontFamily: 'JetBrains Mono, monospace', whiteSpace: 'pre-wrap',
+                    }}>
+                      {msg}
+                    </div>
+                  </div>
+                );
+              }))}
+            </div>
+          </div>
         </div>
       )}
     </div>

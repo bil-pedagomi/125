@@ -273,6 +273,34 @@ export async function fetchGroupes(eventUuid) {
   return res.json();
 }
 
+// Fetch the f125_config key/value table and return it as a flat object.
+// Never hardcode values that live in this table — always read from here.
+export async function fetchConfig() {
+  const url = `${SUPABASE_URL}/rest/v1/f125_config?select=cle,valeur`;
+  const res = await fetch(url, { headers: SB_HEADERS });
+  if (!res.ok) throw new Error(`Erreur fetch config: ${res.status}`);
+  const rows = await res.json();
+  const config = {};
+  rows.forEach(r => { config[r.cle] = r.valeur; });
+  return config;
+}
+
+// Generate the SMS message for one student. All dynamic values (heure,
+// adresse, telephone) come from the config object — nothing is hardcoded.
+// dateFormation must be a Date object (e.g. new Date(session.start_time)).
+export function genererMessageSMS(prenom, dateFormation, numeroGroupe, config) {
+  const heure = config?.[`heure_groupe_${numeroGroupe}`] || '';
+  const dateFormatee = new Intl.DateTimeFormat('fr-FR', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  }).format(dateFormation);
+  const adresse = config?.adresse_formation || '';
+  const tel = config?.telephone_contact || '';
+  return `Bonjour ${prenom}, vos groupes pour votre formation 125cc Pedagomi ont été constitués. Vous faites partie du groupe de ${heure}. Rendez-vous le ${dateFormatee} à ${heure} au ${adresse}. En cas de problème appelez le ${tel}.`;
+}
+
 export async function saveGroupes(eventUuid, dateFormation, groupes) {
   // Build rows for upsert
   const rows = [];
