@@ -123,7 +123,7 @@ const SCORE_NIVEAU = {
 };
 
 const HEURES_GROUPES = ['10:00', '14:00', '18:00'];
-const MAX_PAR_GROUPE = 6;
+export const MAX_PAR_GROUPE = 6;
 const MAX_SCOOTERS = 3;
 
 export function getNiveauLabel(inv) {
@@ -137,17 +137,55 @@ export function getNiveauScore(inv) {
 export function repartirGroupes(invitees) {
   // 1. Sort by niveau score DESC
   const sorted = [...invitees].sort((a, b) => getNiveauScore(b) - getNiveauScore(a));
+  const nbEleves = sorted.length;
 
-  // 2. Number of groups needed
-  const nbGroupes = Math.max(1, Math.ceil(sorted.length / MAX_PAR_GROUPE));
+  // Helper: assign roles within a group (top 3 qualified → scooter)
+  const assignRoles = (membres) => {
+    const sortedM = [...membres].sort((a, b) => getNiveauScore(b) - getNiveauScore(a));
+    let scooterCount = 0;
+    return sortedM.map((inv) => {
+      const label = getNiveauLabel(inv);
+      const canScooter = scooterCount < MAX_SCOOTERS
+        && label !== 'Jamais conduit'
+        && label !== 'Formulaire manquant'
+        && label !== 'Non renseigné';
+      const role = canScooter ? 'scooter' : 'voiture';
+      if (canScooter) scooterCount++;
+      return { ...inv, role, modifie_manuellement: false, ordre_passage: null, note: '' };
+    });
+  };
 
-  // 3. Round-robin distribution for level homogeneity
+  // 2. Single group case: everyone at 10:00
+  if (nbEleves <= MAX_PAR_GROUPE) {
+    return [{
+      numero: 1,
+      heure: HEURES_GROUPES[0],
+      membres: assignRoles(sorted),
+    }];
+  }
+
+  // 3. Multiple groups: fill afternoon groups to MAX first,
+  //    leave remainder in morning group to preserve buffer for last-minute bookings
+  const nbGroupes = Math.ceil(nbEleves / MAX_PAR_GROUPE);
+  const remainder = nbEleves - (nbGroupes - 1) * MAX_PAR_GROUPE;
+  // Sizes: [remainder (morning), MAX, MAX, ...]
+  const groupSizes = [remainder];
+  for (let i = 1; i < nbGroupes; i++) groupSizes.push(MAX_PAR_GROUPE);
+
+  // 4. Round-robin distribution respecting size caps (for level homogeneity)
   const buckets = Array.from({ length: nbGroupes }, () => []);
-  sorted.forEach((inv, i) => {
-    buckets[i % nbGroupes].push(inv);
+  let cursor = 0;
+  sorted.forEach(inv => {
+    let guard = 0;
+    while (buckets[cursor].length >= groupSizes[cursor] && guard < nbGroupes) {
+      cursor = (cursor + 1) % nbGroupes;
+      guard++;
+    }
+    buckets[cursor].push(inv);
+    cursor = (cursor + 1) % nbGroupes;
   });
 
-  // 4. Preference-based swaps: try to match creneau_prefere
+  // 5. Preference-based swaps: try to match creneau_prefere
   if (nbGroupes >= 2) {
     for (let gi = 0; gi < nbGroupes; gi++) {
       for (let mi = 0; mi < buckets[gi].length; mi++) {
@@ -178,26 +216,12 @@ export function repartirGroupes(invitees) {
     }
   }
 
-  // 5. Assign roles: in each group, sort by score DESC, top 3 with score >= 2 → scooter
-  return buckets.map((membres, idx) => {
-    const sortedMembres = [...membres].sort((a, b) => getNiveauScore(b) - getNiveauScore(a));
-    let scooterCount = 0;
-    const membresWithRole = sortedMembres.map((inv) => {
-      const label = getNiveauLabel(inv);
-      const canScooter = scooterCount < MAX_SCOOTERS
-        && label !== 'Jamais conduit'
-        && label !== 'Formulaire manquant'
-        && label !== 'Non renseigné';
-      const role = canScooter ? 'scooter' : 'voiture';
-      if (canScooter) scooterCount++;
-      return { ...inv, role, modifie_manuellement: false, ordre_passage: null, note: '' };
-    });
-    return {
-      numero: idx + 1,
-      heure: HEURES_GROUPES[idx] || `${10 + idx * 4}:00`,
-      membres: membresWithRole,
-    };
-  });
+  // 6. Build groups with assigned roles
+  return buckets.map((membres, idx) => ({
+    numero: idx + 1,
+    heure: HEURES_GROUPES[idx] || `${10 + idx * 4}:00`,
+    membres: assignRoles(membres),
+  }));
 }
 
 const SB_HEADERS = {

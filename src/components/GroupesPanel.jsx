@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { RefreshCw, Check, AlertTriangle, Pencil } from 'lucide-react';
 import Avatar from './Avatar';
-import { getNiveauStyle, getNiveauLabel, getNiveauScore, repartirGroupes, fetchGroupes, saveGroupes } from '../utils';
+import { getNiveauStyle, getNiveauLabel, getNiveauScore, repartirGroupes, fetchGroupes, saveGroupes, MAX_PAR_GROUPE } from '../utils';
 import useIsMobile from '../hooks/useIsMobile';
 
 const CRENEAU_DOT = {
@@ -232,6 +232,28 @@ export default function GroupesPanel({ session }) {
                       Réinitialiser
                     </button>
                   </div>
+                  {gIdx === 0 && groupes.length >= 2 && (() => {
+                    const free = MAX_PAR_GROUPE - g.membres.length;
+                    if (free > 0) {
+                      return (
+                        <div style={{ marginTop: 6, fontSize: 11, fontWeight: 600, color: '#10b981' }}>
+                          ✅ {free} place{free > 1 ? 's' : ''} disponible{free > 1 ? 's' : ''}
+                        </div>
+                      );
+                    }
+                    if (groupes.length === 2) {
+                      return (
+                        <div style={{ marginTop: 6, fontSize: 11, fontWeight: 600, color: '#f59e0b' }}>
+                          ⚠️ Complet — toute nouvelle réservation nécessitera un 3ème groupe
+                        </div>
+                      );
+                    }
+                    return (
+                      <div style={{ marginTop: 6, fontSize: 11, fontWeight: 600, color: '#f59e0b' }}>
+                        ⚠️ Complet
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 {scooters.length > 0 && (
