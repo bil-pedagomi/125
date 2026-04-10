@@ -125,6 +125,7 @@ const SCORE_NIVEAU = {
 const HEURES_GROUPES = ['10:00', '14:00', '18:00'];
 export const MAX_PAR_GROUPE = 6;
 const MAX_SCOOTERS = 3;
+export const MAX_VOITURE = 3;
 
 export function getNiveauLabel(inv) {
   return getNiveauStyle(inv).label;
@@ -149,18 +150,32 @@ export function getPrefScore(val) {
 export function repartirGroupes(invitees) {
   const nbEleves = invitees.length;
 
-  // Helper: assign roles within a group (top 3 qualified → scooter)
+  // Helper: assign roles within a group.
+  // Business rule: max 3 scooters + max 3 voitures = 6 per group.
+  // Top 3 qualified → scooter; next 3 → voiture. Overflow falls back to
+  // voiture (a validation alert will flag the group as invalid).
   const assignRoles = (membres) => {
     const sortedM = [...membres].sort((a, b) => getNiveauScore(b) - getNiveauScore(a));
     let scooterCount = 0;
+    let voitureCount = 0;
     return sortedM.map((inv) => {
       const label = getNiveauLabel(inv);
-      const canScooter = scooterCount < MAX_SCOOTERS
-        && label !== 'Jamais conduit'
+      const peutScooter = label !== 'Jamais conduit'
         && label !== 'Formulaire manquant'
         && label !== 'Non renseigné';
-      const role = canScooter ? 'scooter' : 'voiture';
-      if (canScooter) scooterCount++;
+      let role;
+      if (peutScooter && scooterCount < MAX_SCOOTERS) {
+        role = 'scooter';
+        scooterCount++;
+      } else if (voitureCount < MAX_VOITURE) {
+        role = 'voiture';
+        voitureCount++;
+      } else {
+        // Overflow — keep assigning to voiture so the record stays valid;
+        // getValidationErrors() will surface the breach.
+        role = 'voiture';
+        voitureCount++;
+      }
       return { ...inv, role, modifie_manuellement: false, ordre_passage: null, note: '' };
     });
   };
@@ -302,16 +317,18 @@ export function genererMessageSMS(prenom, dateFormation, numeroGroupe, config) {
 }
 
 export async function saveGroupes(eventUuid, dateFormation, groupes) {
-  // Build rows for upsert
+  // Build rows for upsert. invitee_uuid is NOT NULL in the schema, so
+  // coerce to string and fall back to email if id is missing.
   const rows = [];
   groupes.forEach(g => {
     g.membres.forEach((m, i) => {
+      const uuid = m.invitee_uuid ?? m.id;
       rows.push({
-        calendly_event_uuid: eventUuid,
+        calendly_event_uuid: String(eventUuid),
         date_formation: dateFormation,
         groupe_numero: g.numero,
         heure_debut: g.heure,
-        invitee_uuid: m.id || null,
+        invitee_uuid: uuid != null ? String(uuid) : String(m.email),
         email: m.email,
         role: m.role,
         ordre_passage: i + 1,
@@ -321,17 +338,23 @@ export async function saveGroupes(eventUuid, dateFormation, groupes) {
     });
   });
 
-  // Delete existing rows for this event, then insert
-  await fetch(
-    `${SUPABASE_URL}/rest/v1/formation_groupes?calendly_event_uuid=eq.${encodeURIComponent(eventUuid)}`,
-    { method: 'DELETE', headers: SB_HEADERS }
+  // Single atomic UPSERT on the (calendly_event_uuid, invitee_uuid) unique
+  // constraint. Updates the row in place if it exists, inserts otherwise.
+  const res = await fetch(
+    `${SUPABASE_URL}/rest/v1/formation_groupes?on_conflict=calendly_event_uuid,invitee_uuid`,
+    {
+      method: 'POST',
+      headers: {
+        ...SB_HEADERS,
+        'Prefer': 'resolution=merge-duplicates, return=representation',
+      },
+      body: JSON.stringify(rows),
+    }
   );
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/formation_groupes`, {
-    method: 'POST',
-    headers: SB_HEADERS,
-    body: JSON.stringify(rows),
-  });
-  if (!res.ok) throw new Error(`Erreur save groupes: ${res.status}`);
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '');
+    throw new Error(`Erreur save groupes: ${res.status} — ${errText}`);
+  }
   return res.json();
 }
 

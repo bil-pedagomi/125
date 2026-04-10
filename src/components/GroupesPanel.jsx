@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { RefreshCw, Check, AlertTriangle, Pencil, MessageSquare, X, Copy } from 'lucide-react';
 import Avatar from './Avatar';
-import { getNiveauStyle, getNiveauLabel, getNiveauScore, repartirGroupes, fetchGroupes, saveGroupes, MAX_PAR_GROUPE, computeSatisfaction, fetchConfig, genererMessageSMS } from '../utils';
+import { getNiveauStyle, getNiveauLabel, getNiveauScore, repartirGroupes, fetchGroupes, saveGroupes, MAX_PAR_GROUPE, MAX_VOITURE, computeSatisfaction, fetchConfig, genererMessageSMS } from '../utils';
 import useIsMobile from '../hooks/useIsMobile';
 
 const CRENEAU_DOT = {
@@ -20,12 +20,16 @@ function getCreneauType(pref) {
 function getValidationErrors(groupes) {
   const errors = [];
   groupes.forEach(g => {
-    if (g.membres.length > 6) {
-      errors.push({ type: 'error', groupe: g.numero, msg: `Groupe ${g.numero} dépasse 6 élèves (${g.membres.length})` });
+    if (g.membres.length > MAX_PAR_GROUPE) {
+      errors.push({ type: 'error', groupe: g.numero, msg: `Groupe ${g.numero} dépasse ${MAX_PAR_GROUPE} élèves (${g.membres.length})` });
     }
     const scooterCount = g.membres.filter(m => m.role === 'scooter').length;
+    const voitureCount = g.membres.filter(m => m.role === 'voiture').length;
     if (scooterCount > 3) {
       errors.push({ type: 'warn', groupe: g.numero, msg: `Groupe ${g.numero} : ${scooterCount} scooters (max 3)` });
+    }
+    if (voitureCount > MAX_VOITURE) {
+      errors.push({ type: 'warn', groupe: g.numero, msg: `Groupe ${g.numero} : ${voitureCount} élèves en voiture (max ${MAX_VOITURE})` });
     }
     g.membres.forEach(m => {
       const label = getNiveauLabel(m);
@@ -66,6 +70,16 @@ const CSS = `
 }
 `;
 
+function formatTimeAgo(ts, now) {
+  const sec = Math.floor((now - ts) / 1000);
+  if (sec < 10) return "à l'instant";
+  if (sec < 60) return `il y a ${sec} s`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `il y a ${min} min`;
+  const h = Math.floor(min / 60);
+  return `il y a ${h} h`;
+}
+
 export default function GroupesPanel({ session }) {
   const invitees = session.invitees || [];
   const eventUuid = session.id;
@@ -75,10 +89,19 @@ export default function GroupesPanel({ session }) {
   const [groupes, setGroupes] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
+  const [lastSavedAt, setLastSavedAt] = useState(null);
+  const [saveError, setSaveError] = useState(null);
+  const [nowTick, setNowTick] = useState(Date.now());
   const [config, setConfig] = useState(null);
   const [showSMS, setShowSMS] = useState(false);
   const [copiedEmail, setCopiedEmail] = useState(null);
+
+  // Tick every 30s so the "il y a X" label stays fresh
+  useEffect(() => {
+    if (!lastSavedAt) return;
+    const id = setInterval(() => setNowTick(Date.now()), 30000);
+    return () => clearInterval(id);
+  }, [lastSavedAt]);
 
   // Load f125_config (adresse, téléphone, horaires…)
   useEffect(() => {
@@ -89,7 +112,8 @@ export default function GroupesPanel({ session }) {
     return () => { cancelled = true; };
   }, []);
 
-  // Load existing groups from DB
+  // Load existing groups from DB. If rows already exist for this event,
+  // display them directly (do NOT re-run the algorithm).
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -113,6 +137,8 @@ export default function GroupesPanel({ session }) {
             });
           });
           setGroupes(Object.values(groupeMap).sort((a, b) => a.numero - b.numero));
+          // Consider loaded rows as "already saved"
+          setLastSavedAt(Date.now());
         }
       } catch (e) {
         console.error('Erreur chargement groupes:', e);
@@ -122,60 +148,65 @@ export default function GroupesPanel({ session }) {
     return () => { cancelled = true; };
   }, [eventUuid]);
 
+  // Persist a given groupes snapshot to Supabase. Used by every mutation
+  // (generate, manual swap, role toggle, reset) so the DB is always in sync.
+  const persistGroupes = useCallback(async (nextGroupes) => {
+    if (!nextGroupes || !dateFormation) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      await saveGroupes(eventUuid, dateFormation, nextGroupes);
+      setLastSavedAt(Date.now());
+    } catch (e) {
+      console.error('Erreur sauvegarde:', e);
+      setSaveError(e.message || String(e));
+    }
+    setSaving(false);
+  }, [eventUuid, dateFormation]);
+
   const generer = useCallback(() => {
     const result = repartirGroupes(invitees);
     setGroupes(result);
-    setSaved(false);
-  }, [invitees]);
+    void persistGroupes(result);
+  }, [invitees, persistGroupes]);
 
-  const sauvegarder = useCallback(async () => {
-    if (!groupes || !dateFormation) return;
-    setSaving(true);
-    try {
-      await saveGroupes(eventUuid, dateFormation, groupes);
-      setSaved(true);
-    } catch (e) {
-      console.error('Erreur sauvegarde:', e);
-    }
-    setSaving(false);
-  }, [groupes, eventUuid, dateFormation]);
+  const sauvegarder = useCallback(() => {
+    if (groupes) void persistGroupes(groupes);
+  }, [groupes, persistGroupes]);
 
   const resetGroupe = useCallback((gIdx) => {
+    if (!groupes) return;
     const result = repartirGroupes(invitees);
-    setGroupes(prev => {
-      const next = [...prev];
-      if (result[gIdx]) next[gIdx] = result[gIdx];
-      return next;
-    });
-    setSaved(false);
-  }, [invitees]);
+    const next = [...groupes];
+    if (result[gIdx]) next[gIdx] = result[gIdx];
+    setGroupes(next);
+    void persistGroupes(next);
+  }, [groupes, invitees, persistGroupes]);
 
   const moveToGroupe = useCallback((fromG, memIdx, toG) => {
-    setGroupes(prev => {
-      const next = prev.map(g => ({ ...g, membres: [...g.membres] }));
-      const [moved] = next[fromG].membres.splice(memIdx, 1);
-      moved.modifie_manuellement = true;
-      next[toG].membres.push(moved);
-      return next;
-    });
-    setSaved(false);
-  }, []);
+    if (!groupes) return;
+    const next = groupes.map(g => ({ ...g, membres: [...g.membres] }));
+    const [moved] = next[fromG].membres.splice(memIdx, 1);
+    moved.modifie_manuellement = true;
+    next[toG].membres.push(moved);
+    setGroupes(next);
+    void persistGroupes(next);
+  }, [groupes, persistGroupes]);
 
   const toggleRole = useCallback((gIdx, memIdx) => {
-    setGroupes(prev => {
-      const next = prev.map(g => ({ ...g, membres: [...g.membres] }));
-      const m = { ...next[gIdx].membres[memIdx] };
-      const label = getNiveauLabel(m);
-      if (m.role === 'voiture' && (label === 'Jamais conduit' || label === 'Formulaire manquant')) {
-        return prev; // Block: can't put on scooter
-      }
-      m.role = m.role === 'scooter' ? 'voiture' : 'scooter';
-      m.modifie_manuellement = true;
-      next[gIdx].membres[memIdx] = m;
-      return next;
-    });
-    setSaved(false);
-  }, []);
+    if (!groupes) return;
+    const next = groupes.map(g => ({ ...g, membres: [...g.membres] }));
+    const m = { ...next[gIdx].membres[memIdx] };
+    const label = getNiveauLabel(m);
+    if (m.role === 'voiture' && (label === 'Jamais conduit' || label === 'Formulaire manquant')) {
+      return; // Block: can't put on scooter
+    }
+    m.role = m.role === 'scooter' ? 'voiture' : 'scooter';
+    m.modifie_manuellement = true;
+    next[gIdx].membres[memIdx] = m;
+    setGroupes(next);
+    void persistGroupes(next);
+  }, [groupes, persistGroupes]);
 
   if (loading) {
     return <div style={{ padding: 16, color: '#64748b', fontSize: 13 }}>Chargement des groupes...</div>;
@@ -190,6 +221,23 @@ export default function GroupesPanel({ session }) {
     <div style={{ marginTop: 12 }}>
       <style>{CSS}</style>
 
+      {groupes && (saving || lastSavedAt || saveError) && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 8,
+          padding: '8px 12px', borderRadius: 6, marginBottom: 12,
+          fontSize: 12, fontWeight: 500,
+          background: saving ? 'rgba(108,99,255,0.12)' : saveError ? 'rgba(226,75,74,0.12)' : 'rgba(16,185,129,0.12)',
+          color: saving ? '#a5b4fc' : saveError ? '#E24B4A' : '#10b981',
+        }}>
+          {saving
+            ? <>⏳ Sauvegarde en cours...</>
+            : saveError
+              ? <>❌ Erreur de sauvegarde : {saveError}</>
+              : <>✅ Groupes sauvegardés — dernière modification {formatTimeAgo(lastSavedAt, nowTick)}</>
+          }
+        </div>
+      )}
+
       <div className="groupes-toolbar">
         <button
           onClick={generer}
@@ -198,14 +246,15 @@ export default function GroupesPanel({ session }) {
           <RefreshCw size={13} />
           {groupes ? 'Regénérer' : 'Générer les groupes'}
         </button>
-        {groupes && (
+        {groupes && saveError && (
           <button
             onClick={sauvegarder}
             disabled={saving || hasBlockers}
-            style={{ background: allValid ? 'rgba(16,185,129,0.2)' : 'rgba(107,113,148,0.15)', color: allValid ? '#10b981' : '#64748b' }}
+            style={{ background: 'rgba(226,75,74,0.15)', color: '#E24B4A' }}
+            title="Réessayer la sauvegarde"
           >
             <Check size={13} />
-            {saving ? 'Sauvegarde...' : saved ? 'Sauvegardé' : 'Confirmer les groupes'}
+            Réessayer
           </button>
         )}
         {groupes && (
