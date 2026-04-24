@@ -45,6 +45,12 @@ export function normalizePhone(phone) {
   return digits;
 }
 
+export function toE164(phone) {
+  const digits = normalizePhone(phone);
+  if (digits.length === 9) return `+33${digits}`;
+  return null;
+}
+
 export function normalizeEmail(email) {
   return (email || '').trim().toLowerCase();
 }
@@ -316,6 +322,41 @@ export function genererMessageSMS(prenom, dateFormation, numeroGroupe, config) {
   return `Bonjour ${prenom}, vos groupes pour votre formation 125cc Pedagomi ont été constitués. Vous faites partie du groupe de ${heure}. Rendez-vous le ${dateFormatee} à ${heure} au ${adresse}. En cas de problème appelez le ${tel}.`;
 }
 
+export function genererMessageFromTemplate(template, variables) {
+  return template.replace(/\{(\w+)\}/g, (_, key) => variables[key] ?? `{${key}}`);
+}
+
+export async function sendSMSViaEdgeFunction(recipients) {
+  const url = `${SUPABASE_URL}/functions/v1/send-sms-ringover`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+    },
+    body: JSON.stringify({ recipients }),
+  });
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '');
+    throw new Error(`Erreur envoi SMS: ${res.status} — ${errText}`);
+  }
+  return res.json();
+}
+
+export async function fetchSMSHistory(eventUuid) {
+  const url = `${SUPABASE_URL}/rest/v1/f125_sms_envoyes?calendly_event_uuid=eq.${encodeURIComponent(eventUuid)}&order=created_at.desc`;
+  const res = await fetch(url, { headers: SB_HEADERS });
+  if (!res.ok) throw new Error(`Erreur fetch SMS history: ${res.status}`);
+  return res.json();
+}
+
+export async function fetchSMSTemplates() {
+  const url = `${SUPABASE_URL}/rest/v1/f125_sms_templates?actif=eq.true&order=created_at.desc`;
+  const res = await fetch(url, { headers: SB_HEADERS });
+  if (!res.ok) throw new Error(`Erreur fetch templates: ${res.status}`);
+  return res.json();
+}
+
 export async function saveGroupes(eventUuid, dateFormation, groupes) {
   // Build rows for upsert. invitee_uuid is NOT NULL in the schema, so
   // coerce to string and fall back to email if id is missing.
@@ -334,6 +375,7 @@ export async function saveGroupes(eventUuid, dateFormation, groupes) {
         ordre_passage: i + 1,
         modifie_manuellement: m.modifie_manuellement || false,
         note: m.note || '',
+        preference_creneau: m.creneau_prefere ?? null,
       });
     });
   });
