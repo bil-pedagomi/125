@@ -4,14 +4,27 @@ import { corsHeaders } from "../_shared/cors.ts";
 const RINGOVER_BASE = "https://public-api.ringover.com/v2";
 const SLEEP_MS = 150;
 
-interface Recipient {
-  phone_e164: string;
-  message: string;
-  invitee_email: string;
-  invitee_name?: string;
+interface Destinataire {
   invitee_uuid?: string;
-  groupe_numero: number;
+  prenom: string;
+  numero: string;
+  message: string;
+}
+
+interface RequestBody {
   calendly_event_uuid: string;
+  groupe_numero: number;
+  date_formation?: string;
+  heure_groupe?: string;
+  destinataires: Destinataire[];
+}
+
+function normalizePhone(num: string): string {
+  const digits = num.replace(/[^0-9]/g, "");
+  if (digits.startsWith("33")) return digits;
+  if (digits.startsWith("0") && digits.length === 10) return "33" + digits.slice(1);
+  if (digits.length === 9) return "33" + digits;
+  return digits;
 }
 
 function sleep(ms: number) {
@@ -38,27 +51,37 @@ Deno.serve(async (req) => {
       );
     }
 
-    const { recipients }: { recipients: Recipient[] } = await req.json();
-    if (!recipients?.length) {
+    const body: RequestBody = await req.json();
+    const { calendly_event_uuid, groupe_numero, date_formation, heure_groupe, destinataires } = body;
+
+    if (!destinataires?.length) {
       return new Response(
-        JSON.stringify({ error: "No recipients" }),
+        JSON.stringify({ error: "No destinataires" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
 
-    const results: Array<{ email: string; statut: string; error?: string }> = [];
+    const details: Array<{
+      invitee_uuid?: string;
+      numero: string;
+      statut: string;
+      message_id?: string;
+      error?: string;
+    }> = [];
 
-    for (let i = 0; i < recipients.length; i++) {
-      const r = recipients[i];
+    for (let i = 0; i < destinataires.length; i++) {
+      const d = destinataires[i];
+      const normalized = normalizePhone(d.numero);
 
-      // Insert pending row into sms_queue
       const { data: inserted } = await supabase.from("sms_queue").insert({
-        telephone: r.phone_e164,
-        prenom: r.invitee_name || r.invitee_email,
-        message: r.message,
-        heure_groupe: `${r.groupe_numero}`,
-        calendly_event_uuid: r.calendly_event_uuid,
-        invitee_uuid: r.invitee_uuid || null,
+        telephone: d.numero,
+        prenom: d.prenom,
+        message: d.message,
+        date_formation: date_formation || null,
+        heure_groupe: heure_groupe || `${groupe_numero}`,
+        calendly_event_uuid,
+        invitee_uuid: d.invitee_uuid || null,
+        groupe_numero,
         statut: "pending",
       }).select("id").single();
 
@@ -66,12 +89,12 @@ Deno.serve(async (req) => {
 
       try {
         const smsPayload: Record<string, string> = {
-          to: r.phone_e164,
-          content: r.message,
+          from_number: normalizePhone(fromNumber || ""),
+          to_number: normalized,
+          content: d.message,
         };
-        if (fromNumber) smsPayload.from = fromNumber;
 
-        const smsRes = await fetch(`${RINGOVER_BASE}/sms`, {
+        const smsRes = await fetch(`${RINGOVER_BASE}/push/sms`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -80,26 +103,27 @@ Deno.serve(async (req) => {
           body: JSON.stringify(smsPayload),
         });
 
-        const body = await smsRes.json().catch(() => ({}));
+        const smsBody = await smsRes.json().catch(() => ({}));
 
-        if (smsRes.ok) {
+        if (smsRes.ok || smsRes.status === 202) {
+          const messageId = smsBody?.message_id || smsBody?.id || null;
           if (rowId) {
             await supabase.from("sms_queue").update({
               statut: "sent",
               sent_at: new Date().toISOString(),
-              ringover_message_id: body?.message_id || body?.id || null,
+              ringover_message_id: String(messageId),
             }).eq("id", rowId);
           }
-          results.push({ email: r.invitee_email, statut: "sent" });
+          details.push({ invitee_uuid: d.invitee_uuid, numero: d.numero, statut: "sent", message_id: String(messageId) });
         } else {
-          const errMsg = `HTTP ${smsRes.status}: ${JSON.stringify(body)}`;
+          const errMsg = `HTTP ${smsRes.status}: ${JSON.stringify(smsBody)}`;
           if (rowId) {
             await supabase.from("sms_queue").update({
               statut: "failed",
               erreur_message: errMsg,
             }).eq("id", rowId);
           }
-          results.push({ email: r.invitee_email, statut: "failed", error: errMsg });
+          details.push({ invitee_uuid: d.invitee_uuid, numero: d.numero, statut: "failed", error: errMsg });
         }
       } catch (err) {
         const errMsg = String(err);
@@ -109,28 +133,26 @@ Deno.serve(async (req) => {
             erreur_message: errMsg,
           }).eq("id", rowId);
         }
-        results.push({ email: r.invitee_email, statut: "failed", error: errMsg });
+        details.push({ invitee_uuid: d.invitee_uuid, numero: d.numero, statut: "failed", error: errMsg });
       }
 
-      // Rate limit between sends
-      if (i < recipients.length - 1) await sleep(SLEEP_MS);
+      if (i < destinataires.length - 1) await sleep(SLEEP_MS);
     }
 
-    const sent = results.filter((r) => r.statut === "sent").length;
-    const failed = results.filter((r) => r.statut === "failed").length;
+    const success = details.filter((d) => d.statut === "sent").length;
+    const failed = details.filter((d) => d.statut === "failed").length;
 
-    // Log to sync_log_unifie
     await supabase.from("sync_log_unifie").insert({
       source: "ringover_sms",
       status: failed === 0 ? "success" : "partial",
-      nb_fetched: recipients.length,
-      nb_inserted: sent,
+      nb_fetched: destinataires.length,
+      nb_inserted: success,
       nb_skipped: failed,
-      metadata: { results },
+      metadata: { details },
     });
 
     return new Response(
-      JSON.stringify({ sent, failed, results }),
+      JSON.stringify({ total: destinataires.length, success, failed, details }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   } catch (err) {

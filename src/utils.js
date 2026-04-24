@@ -326,7 +326,7 @@ export function genererMessageFromTemplate(template, variables) {
   return template.replace(/\{(\w+)\}/g, (_, key) => variables[key] ?? `{${key}}`);
 }
 
-export async function sendSMSViaEdgeFunction(recipients) {
+export async function sendSMSViaEdgeFunction({ calendly_event_uuid, groupe_numero, date_formation, heure_groupe, destinataires }) {
   const url = `${SUPABASE_URL}/functions/v1/send-sms-ringover`;
   const res = await fetch(url, {
     method: 'POST',
@@ -334,7 +334,7 @@ export async function sendSMSViaEdgeFunction(recipients) {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
     },
-    body: JSON.stringify({ recipients }),
+    body: JSON.stringify({ calendly_event_uuid, groupe_numero, date_formation, heure_groupe, destinataires }),
   });
   if (!res.ok) {
     const errText = await res.text().catch(() => '');

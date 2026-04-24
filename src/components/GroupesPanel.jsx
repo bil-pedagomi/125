@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { RefreshCw, Check, AlertTriangle, Pencil, MessageSquare, Send, CheckCircle } from 'lucide-react';
 import Avatar from './Avatar';
 import SmsModal from './SmsModal';
+import SmsHistorique from './SmsHistorique';
 import { getNiveauStyle, getNiveauLabel, getNiveauScore, repartirGroupes, fetchGroupes, saveGroupes, MAX_PAR_GROUPE, MAX_VOITURE, computeSatisfaction, fetchConfig, toE164, fetchSMSHistory } from '../utils';
 import useIsMobile from '../hooks/useIsMobile';
 
@@ -122,7 +123,7 @@ export default function GroupesPanel({ session }) {
         if (cancelled) return;
         const map = {};
         rows.forEach(r => {
-          const key = r.telephone || r.invitee_email;
+          const key = toE164(r.telephone) || r.telephone;
           if (!map[key]) map[key] = [];
           map[key].push(r);
         });
@@ -137,8 +138,9 @@ export default function GroupesPanel({ session }) {
       const rows = await fetchSMSHistory(eventUuid);
       const map = {};
       rows.forEach(r => {
-        if (!map[r.invitee_email]) map[r.invitee_email] = [];
-        map[r.invitee_email].push(r);
+        const key = toE164(r.telephone) || r.telephone;
+        if (!map[key]) map[key] = [];
+        map[key].push(r);
       });
       setSmsHistory(map);
     } catch (e) {
@@ -441,6 +443,8 @@ export default function GroupesPanel({ session }) {
         smsHistory={smsHistory}
         onSmsSent={refreshSmsHistory}
       />
+
+      {groupes && <SmsHistorique eventUuid={eventUuid} />}
     </div>
   );
 }

@@ -117,7 +117,7 @@ export default function SmsModal({ open, onClose, groupe, session, config, smsHi
     setSendResult(null);
     setLockUntil(Date.now() + 5000);
 
-    const recipients = checkedMembers.map(m => {
+    const destinataires = checkedMembers.map(m => {
       const prenom = (m.name || '').trim().split(/\s+/)[0] || (m.email || '').split('@')[0];
       const msg = genererMessageFromTemplate(template, {
         prenom,
@@ -125,17 +125,23 @@ export default function SmsModal({ open, onClose, groupe, session, config, smsHi
         vehicule: m.role || 'scooter',
       });
       return {
-        phone_e164: toE164(m.phone),
+        invitee_uuid: m.invitee_uuid || m.id || m.email,
+        prenom,
+        numero: m.phone || '',
         message: msg,
-        invitee_email: m.email,
-        invitee_name: m.name,
-        groupe_numero: groupeNum,
-        calendly_event_uuid: eventUuid,
       };
     });
 
+    const dateFormation = session?.start_time ? session.start_time.split('T')[0] : null;
+
     try {
-      const result = await sendSMSViaEdgeFunction(recipients);
+      const result = await sendSMSViaEdgeFunction({
+        calendly_event_uuid: eventUuid,
+        groupe_numero: groupeNum,
+        date_formation: dateFormation,
+        heure_groupe: horaire,
+        destinataires,
+      });
       setSendResult(result);
       if (onSmsSent) onSmsSent();
     } catch (e) {
@@ -251,7 +257,7 @@ export default function SmsModal({ open, onClose, groupe, session, config, smsHi
             }}>
               {sendResult.error
                 ? `Erreur : ${sendResult.error}`
-                : `${sendResult.sent} SMS envoyé${sendResult.sent > 1 ? 's' : ''}${sendResult.failed > 0 ? ` — ${sendResult.failed} échec${sendResult.failed > 1 ? 's' : ''}` : ''}`
+                : `${sendResult.success} SMS envoyé${sendResult.success > 1 ? 's' : ''}${sendResult.failed > 0 ? ` — ${sendResult.failed} échec${sendResult.failed > 1 ? 's' : ''}` : ''}`
               }
             </div>
           )}
