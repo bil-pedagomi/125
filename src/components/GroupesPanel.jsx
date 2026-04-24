@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
-import { RefreshCw, Check, AlertTriangle, Pencil, MessageSquare, X, Copy, Send, CheckCircle, Loader } from 'lucide-react';
+import { RefreshCw, Check, AlertTriangle, Pencil, MessageSquare, Send, CheckCircle } from 'lucide-react';
 import Avatar from './Avatar';
-import { getNiveauStyle, getNiveauLabel, getNiveauScore, repartirGroupes, fetchGroupes, saveGroupes, MAX_PAR_GROUPE, MAX_VOITURE, computeSatisfaction, fetchConfig, genererMessageSMS, toE164, sendSMSViaEdgeFunction, fetchSMSHistory } from '../utils';
+import SmsModal from './SmsModal';
+import { getNiveauStyle, getNiveauLabel, getNiveauScore, repartirGroupes, fetchGroupes, saveGroupes, MAX_PAR_GROUPE, MAX_VOITURE, computeSatisfaction, fetchConfig, toE164, fetchSMSHistory } from '../utils';
 import useIsMobile from '../hooks/useIsMobile';
 
 const CRENEAU_DOT = {
@@ -95,11 +96,8 @@ export default function GroupesPanel({ session }) {
   const [saveError, setSaveError] = useState(null);
   const [nowTick, setNowTick] = useState(Date.now());
   const [config, setConfig] = useState(null);
-  const [showSMS, setShowSMS] = useState(false);
-  const [copiedEmail, setCopiedEmail] = useState(null);
   const [smsHistory, setSmsHistory] = useState({});
-  const [sendingAll, setSendingAll] = useState(false);
-  const [sendingIndividual, setSendingIndividual] = useState(null);
+  const [smsModalGroupe, setSmsModalGroupe] = useState(null);
 
   // Tick every 30s so the "il y a X" label stays fresh
   useEffect(() => {
@@ -124,8 +122,9 @@ export default function GroupesPanel({ session }) {
         if (cancelled) return;
         const map = {};
         rows.forEach(r => {
-          if (!map[r.invitee_email]) map[r.invitee_email] = [];
-          map[r.invitee_email].push(r);
+          const key = r.telephone || r.invitee_email;
+          if (!map[key]) map[key] = [];
+          map[key].push(r);
         });
         setSmsHistory(map);
       })
@@ -210,77 +209,15 @@ export default function GroupesPanel({ session }) {
     if (groupes) void persistGroupes(groupes);
   }, [groupes, persistGroupes]);
 
-  const buildRecipient = useCallback((membre, groupe) => {
-    const prenom = (membre.name || '').trim().split(/\s+/)[0] || (membre.email || '').split('@')[0];
-    const msg = genererMessageSMS(prenom, new Date(session.start_time), groupe.numero, config);
-    return {
-      phone_e164: toE164(membre.phone),
-      message: msg,
-      invitee_email: membre.email,
-      invitee_name: membre.name,
-      groupe_numero: groupe.numero,
-      calendly_event_uuid: eventUuid,
-    };
-  }, [session, config, eventUuid]);
+  const openSmsModal = useCallback((gIdx) => {
+    if (!groupes || !groupes[gIdx]) return;
+    setSmsModalGroupe(groupes[gIdx]);
+  }, [groupes]);
 
-  const handleSendIndividualSMS = useCallback(async (membre, gIdx) => {
-    if (!config || !session.start_time || !membre.phone) return;
-    const phone = toE164(membre.phone);
-    if (!phone) { alert('Numéro de téléphone invalide'); return; }
-    setSendingIndividual(membre.email);
-    try {
-      await sendSMSViaEdgeFunction([buildRecipient(membre, groupes[gIdx])]);
-      await refreshSmsHistory();
-    } catch (e) {
-      alert(`Erreur envoi SMS : ${e.message}`);
-    } finally {
-      setSendingIndividual(null);
-    }
-  }, [config, session, groupes, buildRecipient, refreshSmsHistory]);
-
-  const handleSendGroupSMS = useCallback(async (gIdx) => {
-    if (!config || !session.start_time || !groupes) return;
-    const g = groupes[gIdx];
-    const recipients = g.membres
-      .filter(m => m.phone && toE164(m.phone))
-      .map(m => buildRecipient(m, g));
-    if (recipients.length === 0) { alert('Aucun élève avec un numéro valide dans ce groupe'); return; }
-    const skipCount = g.membres.length - recipients.length;
-    const msg = `Envoyer ${recipients.length} SMS au Groupe ${g.numero} ?` +
-      (skipCount > 0 ? `\n(${skipCount} élève${skipCount > 1 ? 's' : ''} sans numéro valide)` : '');
-    if (!window.confirm(msg)) return;
-    setSendingAll(true);
-    try {
-      await sendSMSViaEdgeFunction(recipients);
-      await refreshSmsHistory();
-    } catch (e) {
-      alert(`Erreur envoi SMS : ${e.message}`);
-    } finally {
-      setSendingAll(false);
-    }
-  }, [config, session, groupes, buildRecipient, refreshSmsHistory]);
-
-  const handleSendAllSMS = useCallback(async () => {
-    if (!config || !session.start_time || !groupes) return;
-    const recipients = groupes.flatMap(g =>
-      g.membres.filter(m => m.phone && toE164(m.phone)).map(m => buildRecipient(m, g))
-    );
-    if (recipients.length === 0) { alert('Aucun élève avec un numéro valide'); return; }
-    const total = groupes.reduce((n, g) => n + g.membres.length, 0);
-    const skipCount = total - recipients.length;
-    const msg = `Envoyer ${recipients.length} SMS ?` +
-      (skipCount > 0 ? `\n(${skipCount} élève${skipCount > 1 ? 's' : ''} sans numéro valide)` : '');
-    if (!window.confirm(msg)) return;
-    setSendingAll(true);
-    try {
-      await sendSMSViaEdgeFunction(recipients);
-      await refreshSmsHistory();
-    } catch (e) {
-      alert(`Erreur envoi SMS : ${e.message}`);
-    } finally {
-      setSendingAll(false);
-    }
-  }, [config, session, groupes, buildRecipient, refreshSmsHistory]);
+  const openSmsModalForMember = useCallback((membre, gIdx) => {
+    if (!groupes || !groupes[gIdx]) return;
+    setSmsModalGroupe({ ...groupes[gIdx], membres: [membre] });
+  }, [groupes]);
 
   const resetGroupe = useCallback((gIdx) => {
     if (!groupes) return;
@@ -365,17 +302,6 @@ export default function GroupesPanel({ session }) {
             Réessayer
           </button>
         )}
-        {groupes && (
-          <button
-            onClick={() => setShowSMS(true)}
-            disabled={!config}
-            style={{ background: 'rgba(108,99,255,0.15)', color: '#a5b4fc' }}
-            title={!config ? 'Chargement de la config…' : 'Voir les SMS à envoyer'}
-          >
-            <MessageSquare size={13} />
-            Voir les SMS
-          </button>
-        )}
       </div>
 
       {errors.map((err, i) => (
@@ -438,13 +364,13 @@ export default function GroupesPanel({ session }) {
                       Réinitialiser
                     </button>
                     <button
-                      onClick={() => handleSendGroupSMS(gIdx)}
+                      onClick={() => openSmsModal(gIdx)}
                       className="groupe-btn-sm"
-                      disabled={!config || sendingAll}
+                      disabled={!config}
                       style={{ marginLeft: 4, background: 'rgba(108,99,255,0.15)', color: '#a5b4fc' }}
                       title="Envoyer les SMS à tout le groupe"
                     >
-                      {sendingAll ? <Loader size={10} className="spin" /> : <Send size={10} />} SMS
+                      <Send size={10} /> SMS
                     </button>
                   </div>
                   {gIdx === 0 && groupes.length >= 2 && (() => {
@@ -476,7 +402,7 @@ export default function GroupesPanel({ session }) {
                     <div className="groupe-section-label">🛵 Scooters ({scooters.length})</div>
                     {scooters.map((m, mi) => {
                       const realIdx = g.membres.indexOf(m);
-                      return renderMembre(m, gIdx, realIdx, groupes.length, moveToGroupe, toggleRole, isMobile, { history: smsHistory, sendingIndividual, onSend: handleSendIndividualSMS });
+                      return renderMembre(m, gIdx, realIdx, groupes.length, moveToGroupe, toggleRole, isMobile, { history: smsHistory, onSend: openSmsModalForMember });
                     })}
                   </>
                 )}
@@ -486,7 +412,7 @@ export default function GroupesPanel({ session }) {
                     <div className="groupe-section-label">🚗 Voiture ({voitures.length})</div>
                     {voitures.map((m, mi) => {
                       const realIdx = g.membres.indexOf(m);
-                      return renderMembre(m, gIdx, realIdx, groupes.length, moveToGroupe, toggleRole, isMobile, { history: smsHistory, sendingIndividual, onSend: handleSendIndividualSMS });
+                      return renderMembre(m, gIdx, realIdx, groupes.length, moveToGroupe, toggleRole, isMobile, { history: smsHistory, onSend: openSmsModalForMember });
                     })}
                   </>
                 )}
@@ -506,147 +432,15 @@ export default function GroupesPanel({ session }) {
         </div>
       )}
 
-      {showSMS && groupes && config && session.start_time && (() => {
-        const validCount = groupes.reduce((n, g) => n + g.membres.filter(m => m.phone && toE164(m.phone)).length, 0);
-        const totalCount = groupes.reduce((n, g) => n + g.membres.length, 0);
-        return (
-          <div
-            onClick={() => setShowSMS(false)}
-            style={{
-              position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              zIndex: 1000, padding: 16,
-            }}
-          >
-            <div
-              onClick={e => e.stopPropagation()}
-              style={{
-                background: '#0e1222', border: '1px solid #1e2640', borderRadius: 12,
-                maxWidth: 720, width: '100%', maxHeight: '90vh', display: 'flex', flexDirection: 'column',
-              }}
-            >
-              <div style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                padding: '14px 18px', borderBottom: '1px solid #1e2640',
-              }}>
-                <div>
-                  <div style={{ fontSize: 15, fontWeight: 700, color: '#e2e8f0' }}>
-                    SMS de convocation
-                  </div>
-                  <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
-                    {totalCount} messages — session du {new Intl.DateTimeFormat('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(new Date(session.start_time))}
-                    {validCount < totalCount && ` · ${totalCount - validCount} sans téléphone valide`}
-                  </div>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <button
-                    onClick={handleSendAllSMS}
-                    disabled={sendingAll || validCount === 0}
-                    className="groupe-btn-sm"
-                    style={{
-                      background: sendingAll ? 'rgba(108,99,255,0.25)' : 'rgba(108,99,255,0.15)',
-                      color: '#a5b4fc',
-                      display: 'flex', alignItems: 'center', gap: 4, padding: '6px 12px',
-                      fontSize: 11,
-                    }}
-                  >
-                    {sendingAll ? <Loader size={11} /> : <Send size={11} />}
-                    {sendingAll ? 'Envoi…' : `Envoyer tous (${validCount})`}
-                  </button>
-                  <button
-                    onClick={() => setShowSMS(false)}
-                    style={{
-                      background: 'transparent', border: 'none', color: '#94a3b8',
-                      cursor: 'pointer', padding: 4, display: 'flex',
-                    }}
-                    aria-label="Fermer"
-                  >
-                    <X size={18} />
-                  </button>
-                </div>
-              </div>
-              <div style={{ overflowY: 'auto', padding: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {groupes.flatMap((g, gIdx) => g.membres.map(m => {
-                  const prenom = (m.name || '').trim().split(/\s+/)[0] || (m.email || '').split('@')[0];
-                  const msg = genererMessageSMS(prenom, new Date(session.start_time), g.numero, config);
-                  const key = `${g.numero}-${m.email || m.name}`;
-                  const validPhone = m.phone && toE164(m.phone);
-                  const hasSent = smsHistory[m.email]?.some(s => s.statut === 'sent');
-                  const lastSend = smsHistory[m.email]?.[0];
-                  const isSending = sendingIndividual === m.email;
-                  return (
-                    <div key={key} style={{
-                      background: '#12172a', border: '1px solid #1e2640', borderRadius: 8, padding: 12,
-                    }}>
-                      <div style={{
-                        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
-                        marginBottom: 8,
-                      }}>
-                        <div style={{ minWidth: 0, flex: 1 }}>
-                          <div style={{ fontSize: 13, fontWeight: 600, color: '#e2e8f0', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                            {m.name || m.email}
-                          </div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#64748b', marginTop: 2 }}>
-                            <span>Groupe {g.numero} — {g.heure}</span>
-                            <span style={{ color: validPhone ? '#10b981' : '#E24B4A' }}>
-                              {validPhone ? toE164(m.phone) : (m.phone || 'pas de téléphone')}
-                            </span>
-                            {hasSent && lastSend && (
-                              <span style={{ color: '#10b981', display: 'inline-flex', alignItems: 'center', gap: 2 }}>
-                                <CheckCircle size={9} /> envoyé {new Intl.DateTimeFormat('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }).format(new Date(lastSend.created_at))}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                        <div style={{ display: 'flex', gap: 4 }}>
-                          <button
-                            onClick={() => {
-                              navigator.clipboard.writeText(msg);
-                              setCopiedEmail(key);
-                              setTimeout(() => setCopiedEmail(null), 1500);
-                            }}
-                            className="groupe-btn-sm"
-                            style={{
-                              background: copiedEmail === key ? 'rgba(16,185,129,0.2)' : 'rgba(108,99,255,0.15)',
-                              color: copiedEmail === key ? '#10b981' : '#a5b4fc',
-                              display: 'flex', alignItems: 'center', gap: 4, padding: '6px 10px',
-                            }}
-                          >
-                            {copiedEmail === key ? <Check size={11} /> : <Copy size={11} />}
-                            {copiedEmail === key ? 'Copié' : 'Copier'}
-                          </button>
-                          <button
-                            onClick={() => handleSendIndividualSMS(m, gIdx)}
-                            disabled={!validPhone || isSending}
-                            className="groupe-btn-sm"
-                            style={{
-                              background: isSending ? 'rgba(108,99,255,0.25)' : hasSent ? 'rgba(16,185,129,0.15)' : 'rgba(108,99,255,0.15)',
-                              color: hasSent ? '#10b981' : '#a5b4fc',
-                              display: 'flex', alignItems: 'center', gap: 4, padding: '6px 10px',
-                              opacity: validPhone ? 1 : 0.4,
-                            }}
-                            title={!validPhone ? 'Numéro invalide' : hasSent ? 'Renvoyer' : 'Envoyer'}
-                          >
-                            {isSending ? <Loader size={11} /> : <Send size={11} />}
-                            {isSending ? 'Envoi…' : hasSent ? 'Renvoyer' : 'Envoyer'}
-                          </button>
-                        </div>
-                      </div>
-                      <div style={{
-                        fontSize: 12, color: '#cbd5e1', lineHeight: 1.5,
-                        background: '#0e1222', border: '1px solid #1e2640', borderRadius: 6, padding: 10,
-                        fontFamily: 'JetBrains Mono, monospace', whiteSpace: 'pre-wrap',
-                      }}>
-                        {msg}
-                      </div>
-                    </div>
-                  );
-                }))}
-              </div>
-            </div>
-          </div>
-        );
-      })()}
+      <SmsModal
+        open={!!smsModalGroupe}
+        onClose={() => setSmsModalGroupe(null)}
+        groupe={smsModalGroupe}
+        session={session}
+        config={config}
+        smsHistory={smsHistory}
+        onSmsSent={refreshSmsHistory}
+      />
     </div>
   );
 }
@@ -688,21 +482,21 @@ function renderMembre(m, gIdx, memIdx, nbGroupes, moveToGroupe, toggleRole, isMo
       </div>
       <div className="groupe-membre-actions">
         {smsCtx && (() => {
-          const hasSent = smsCtx.history[m.email]?.some(s => s.statut === 'sent');
-          const isSending = smsCtx.sendingIndividual === m.email;
+          const phoneKey = toE164(m.phone);
+          const hasSent = (phoneKey && smsCtx.history[phoneKey]?.some(s => s.statut === 'sent')) || false;
           const validPhone = m.phone && toE164(m.phone);
           return (
             <button
               className="groupe-btn-sm"
               onClick={(e) => { e.stopPropagation(); smsCtx.onSend(m, gIdx); }}
-              disabled={!validPhone || isSending}
+              disabled={!validPhone}
               style={{
                 background: hasSent ? 'rgba(16,185,129,0.15)' : 'rgba(108,99,255,0.15)',
                 color: hasSent ? '#10b981' : '#a5b4fc',
               }}
               title={!validPhone ? 'Pas de téléphone valide' : hasSent ? 'SMS déjà envoyé — renvoyer' : 'Envoyer le SMS'}
             >
-              {isSending ? <Loader size={10} /> : hasSent ? <CheckCircle size={10} /> : <MessageSquare size={10} />}
+              {hasSent ? <CheckCircle size={10} /> : <MessageSquare size={10} />}
             </button>
           );
         })()}

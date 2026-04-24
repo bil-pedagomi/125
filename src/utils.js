@@ -344,16 +344,24 @@ export async function sendSMSViaEdgeFunction(recipients) {
 }
 
 export async function fetchSMSHistory(eventUuid) {
-  const url = `${SUPABASE_URL}/rest/v1/f125_sms_envoyes?calendly_event_uuid=eq.${encodeURIComponent(eventUuid)}&order=created_at.desc`;
+  const url = `${SUPABASE_URL}/rest/v1/sms_queue?calendly_event_uuid=eq.${encodeURIComponent(eventUuid)}&order=created_at.desc`;
   const res = await fetch(url, { headers: SB_HEADERS });
   if (!res.ok) throw new Error(`Erreur fetch SMS history: ${res.status}`);
   return res.json();
 }
 
-export async function fetchSMSTemplates() {
-  const url = `${SUPABASE_URL}/rest/v1/f125_sms_templates?actif=eq.true&order=created_at.desc`;
-  const res = await fetch(url, { headers: SB_HEADERS });
-  if (!res.ok) throw new Error(`Erreur fetch templates: ${res.status}`);
+export async function saveSmsTemplate(groupeNum, template) {
+  const cle = `sms_template_groupe_${groupeNum}`;
+  const url = `${SUPABASE_URL}/rest/v1/f125_config?cle=eq.${encodeURIComponent(cle)}`;
+  const res = await fetch(url, {
+    method: 'PATCH',
+    headers: { ...SB_HEADERS, 'Prefer': 'return=representation' },
+    body: JSON.stringify({ valeur: template }),
+  });
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '');
+    throw new Error(`Erreur save template: ${res.status} — ${errText}`);
+  }
   return res.json();
 }
 
