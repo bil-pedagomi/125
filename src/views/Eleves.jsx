@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { Search, Download, Eye } from 'lucide-react';
-import { formatDate, getMonthKey, getMonthLabel, getSessionType, getNiveauStyle } from '../utils';
+import { formatDate, getMonthKey, getMonthLabel, getSessionType, getNiveauStyle, formatName } from '../utils';
 import Avatar from '../components/Avatar';
 import PhoneLink from '../components/PhoneLink';
 import Lightbox from '../components/Lightbox';
@@ -353,7 +353,7 @@ function Eleves({ data }) {
                 <span className="er-photo">
                   <Avatar name={e.name} photoUrl={e.photo_identite} size={isExpanded ? 80 : 40} style={{ transition: 'all 0.3s ease', flexShrink: 0 }} />
                 </span>
-                <span className="er-name" style={{ fontSize: isExpanded ? 18 : 14, fontWeight: 700, transition: 'font-size 0.3s ease' }}>{e.name || '—'}</span>
+                <span className="er-name" style={{ fontSize: isExpanded ? 18 : 14, fontWeight: 700, transition: 'font-size 0.3s ease' }}>{formatName(e.name)}</span>
                 <span className="er-email">{e.email || '—'}</span>
                 <span className="er-date">{formatDate(session?.start_time)}</span>
                 <span className="er-form">
@@ -376,7 +376,7 @@ function Eleves({ data }) {
                 {/* Mobile layout */}
                 <div className="er-mobile-l1">
                   <Avatar name={e.name} photoUrl={e.photo_identite} size={isExpanded ? 80 : 32} style={{ transition: 'width 0.3s ease, height 0.3s ease', flexShrink: 0 }} />
-                  <span style={{ fontWeight: 600, fontSize: 13, color: '#f1f5f9', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.name || '—'}</span>
+                  <span style={{ fontWeight: 600, fontSize: 13, color: '#f1f5f9', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{formatName(e.name)}</span>
                 </div>
                 <div className="er-mobile-l2">
                   <span style={{ fontSize: 11, color: '#64748b', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{e.email || '—'}</span>

@@ -3,7 +3,7 @@ import { RefreshCw, Check, AlertTriangle, Pencil, MessageSquare, Send, CheckCirc
 import Avatar from './Avatar';
 import SmsModal from './SmsModal';
 import SmsHistorique from './SmsHistorique';
-import { getNiveauStyle, getNiveauLabel, getNiveauScore, repartirGroupes, fetchGroupes, saveGroupes, MAX_PAR_GROUPE, MAX_VOITURE, computeSatisfaction, fetchConfig, toE164, fetchSMSHistory } from '../utils';
+import { getNiveauStyle, getNiveauLabel, getNiveauScore, repartirGroupes, fetchGroupes, saveGroupes, MAX_PAR_GROUPE, MAX_VOITURE, computeSatisfaction, fetchConfig, toE164, fetchSMSHistory, formatName } from '../utils';
 import useIsMobile from '../hooks/useIsMobile';
 
 const CRENEAU_DOT = {
@@ -466,7 +466,7 @@ function renderMembre(m, gIdx, memIdx, nbGroupes, moveToGroupe, toggleRole, isMo
       <Avatar name={m.name} photoUrl={m.photo_identite} size={28} />
       <div className="groupe-membre-info">
         <div className="groupe-membre-name">
-          {m.name || m.email || '—'}
+          {formatName(m.name) !== '—' ? formatName(m.name) : (m.email || '—')}
           {m.modifie_manuellement && <Pencil size={10} style={{ color: '#f59e0b', flexShrink: 0 }} title="Modification manuelle" />}
           <span className="creneau-dot" style={{ background: dot.color }} title={dot.title} />
         </div>

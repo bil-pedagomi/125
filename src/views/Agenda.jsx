@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback } from 'react';
 import { CalendarDays, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, FileCheck, PhoneCall, Users, Euro, UsersRound } from 'lucide-react';
-import { formatDateShort, formatDate, getMonthKey, getMonthLabel, getSessionType, getNiveauStyle } from '../utils';
+import { formatDateShort, formatDate, getMonthKey, getMonthLabel, getSessionType, getNiveauStyle, formatName } from '../utils';
 import FicheEleve from '../components/FicheEleve';
 import GroupesPanel from '../components/GroupesPanel';
 import Avatar from '../components/Avatar';
@@ -134,7 +134,7 @@ function InviteesTable({ invitees, isMobile }) {
                 <td>
                   <div className="td-eleve">
                     <Avatar name={inv.name} photoUrl={inv.photo_identite} size={32} />
-                    <span className="td-eleve-name">{inv.name || '—'}</span>
+                    <span className="td-eleve-name">{formatName(inv.name)}</span>
                   </div>
                 </td>
                 <td>

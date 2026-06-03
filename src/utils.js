@@ -55,6 +55,15 @@ export function normalizeEmail(email) {
   return (email || '').trim().toLowerCase();
 }
 
+export function formatName(name) {
+  if (!name) return '—';
+  const parts = name.trim().split(/\s+/);
+  if (parts.length <= 1) return name.trim();
+  const prenom = parts[0];
+  const nom = parts.slice(1).map(p => p.toUpperCase()).join(' ');
+  return `${prenom} ${nom}`;
+}
+
 export function formatDate(dateStr) {
   if (!dateStr) return '—';
   const d = new Date(dateStr);
