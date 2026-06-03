@@ -38,6 +38,54 @@ function DocBadge({ label, url, onView }) {
   );
 }
 
+const RELANCE_BADGE = {
+  anticipation: { emoji: '\u{1F4C5}', label: 'Anticipation', bg: 'rgba(55,138,221,0.15)', color: '#378ADD' },
+  'j-2':        { emoji: '⏰',    label: 'J-2',          bg: 'rgba(245,158,11,0.15)', color: '#f59e0b' },
+  'j-1':        { emoji: '\u{1F514}', label: 'J-1',          bg: 'rgba(226,75,74,0.15)',  color: '#E24B4A' },
+};
+
+function RelancesSMS({ relances, nbRelances }) {
+  const count = nbRelances ?? relances?.length ?? 0;
+  const sorted = (relances || []).slice().sort((a, b) => new Date(b.date_envoi) - new Date(a.date_envoi));
+
+  return (
+    <div style={{ marginTop: '0.5rem' }}>
+      <div style={{
+        fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em',
+        color: '#f59e0b', marginBottom: 6,
+      }}>
+        Relances SMS
+      </div>
+      {count === 0 ? (
+        <div style={{ fontSize: 12, color: '#64748b' }}>Aucune relance envoyée</div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {sorted.map((r, i) => {
+            const badge = RELANCE_BADGE[r.type] || RELANCE_BADGE.anticipation;
+            const isSent = r.statut === 'sent';
+            return (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
+                <span style={{
+                  padding: '2px 8px', borderRadius: 8, fontWeight: 600, fontSize: 11,
+                  background: badge.bg, color: badge.color, whiteSpace: 'nowrap',
+                }}>
+                  {badge.emoji} {badge.label}
+                </span>
+                <span style={{ color: '#94a3b8' }}>
+                  Envoyé le {formatDate(r.date_envoi)}
+                </span>
+                <span style={{ color: isSent ? '#10b981' : '#E24B4A', fontWeight: 700, fontSize: 13 }}>
+                  {isSent ? '✓' : '✗'}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function FicheEleve({ invitee, defaultOpen = false }) {
   const [open, setOpen] = useState(defaultOpen);
   const [lightbox, setLightbox] = useState(null);
@@ -55,10 +103,15 @@ export default function FicheEleve({ invitee, defaultOpen = false }) {
           {open ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
         </div>
         {open && (
-          <div className="fiche-eleve-alert">
-            <AlertTriangle size={14} />
-            Formulaire non rempli — Relance nécessaire
-          </div>
+          <>
+            <div className="fiche-eleve-alert">
+              <AlertTriangle size={14} />
+              Formulaire non rempli — Relance nécessaire
+            </div>
+            <div style={{ padding: '0 12px 12px' }}>
+              <RelancesSMS relances={invitee.relances} nbRelances={invitee.nb_relances} />
+            </div>
+          </>
         )}
       </div>
     );
@@ -160,6 +213,8 @@ export default function FicheEleve({ invitee, defaultOpen = false }) {
               <DocBadge label="Signature" url={invitee.photo_signature} onView={() => setLightbox({ url: invitee.photo_signature, label: 'Signature' })} />
             </div>
           </div>
+
+          <RelancesSMS relances={invitee.relances} nbRelances={invitee.nb_relances} />
         </div>
       )}
       {lightbox && <Lightbox url={lightbox.url} label={lightbox.label} onClose={() => setLightbox(null)} />}
