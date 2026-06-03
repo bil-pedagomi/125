@@ -2,6 +2,16 @@ const API_URL = 'https://yuolnqyejxtfpxntflle.supabase.co/functions/v1/dashboard
 const SUPABASE_URL = 'https://yuolnqyejxtfpxntflle.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inl1b2xucXllanh0ZnB4bnRmbGxlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIxOTIzNzcsImV4cCI6MjA4Nzc2ODM3N30.cktsC7ly3ImeIY_2mVmxo0phSTz3obIG3UHgl_iDa7U';
 
+const FILE_PROXY_KEY = 'eb498a94-3602-46a4-bce7-df288002402d';
+
+// Wrap a raw Typeform file URL with the Supabase file-proxy so the browser
+// displays it inline (PDFs render instead of downloading). Use ONLY for the
+// "view" action — the "download" buttons keep the direct Typeform URL.
+export function getProxyUrl(typeformUrl) {
+  if (!typeformUrl) return typeformUrl;
+  return `${SUPABASE_URL}/functions/v1/file-proxy?key=${FILE_PROXY_KEY}&url=${encodeURIComponent(typeformUrl)}`;
+}
+
 export async function fetchDashboardData() {
   const res = await fetch(API_URL);
   if (!res.ok) throw new Error(`Erreur API: ${res.status}`);

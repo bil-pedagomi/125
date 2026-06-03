@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { X, Download } from 'lucide-react';
+import { getProxyUrl } from '../utils';
 
 export default function Lightbox({ url, label, onClose }) {
   useEffect(() => {
@@ -68,10 +69,11 @@ export default function Lightbox({ url, label, onClose }) {
           </div>
         </div>
 
-        {/* Content */}
+        {/* Content — served through the file-proxy so PDFs render inline
+            instead of downloading. The download link above keeps the direct URL. */}
         {isPdf ? (
           <iframe
-            src={url}
+            src={getProxyUrl(url)}
             style={{
               width: '100%', height: '80vh',
               border: '1px solid #334155', borderRadius: 8,
@@ -81,7 +83,7 @@ export default function Lightbox({ url, label, onClose }) {
           />
         ) : (
           <img
-            src={url}
+            src={getProxyUrl(url)}
             alt={label}
             style={{
               maxWidth: '100%', maxHeight: '80vh',
