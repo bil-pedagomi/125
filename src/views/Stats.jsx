@@ -3,7 +3,7 @@ import {
   PieChart, Pie, Cell, BarChart, Bar, LineChart, Line,
   XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, CartesianGrid,
 } from 'recharts';
-import { Users, Euro, FileCheck, Phone, PhoneCall, Mail, MessageSquare, Calendar, TrendingUp, Eye, Target } from 'lucide-react';
+import { Users, UsersRound, Euro, FileCheck, Phone, PhoneCall, Mail, MessageSquare, Calendar, TrendingUp, Eye, Target } from 'lucide-react';
 import { getMonthKey, getMonthLabel, fetchTrafficConversion } from '../utils';
 
 const PRICE = 199;
@@ -245,6 +245,10 @@ function Stats({ data }) {
   const nbAppele = filteredEleves.filter(e => e.a_appele).length;
   const tauxAppel = totalEleves > 0 ? Math.round((nbAppele / totalEleves) * 100) : 0;
   const nbEmailRecus = filteredEleves.filter(e => e.nbEmails > 0).length;
+  const nbAvecProche = filteredEleves.filter(e => e.avec_un_proche === 'Oui').length;
+  const nbSeul = filteredEleves.filter(e => e.avec_un_proche === 'Non').length;
+  const nbReponduAccomp = nbAvecProche + nbSeul;
+  const pctAccompagne = nbReponduAccomp > 0 ? Math.round((nbAvecProche / nbReponduAccomp) * 100) : 0;
 
   const caCompData = useMemo(() => {
     if (periodMonths.length === 0) return null;
@@ -618,6 +622,13 @@ function Stats({ data }) {
           <span className="kpi-value">{nbEmailRecus}</span>
           <span className="kpi-sub">Objectif : 0</span>
         </div>
+        {nbReponduAccomp > 0 && (
+          <div className="kpi-card teal">
+            <span className="kpi-label"><UsersRound size={12} style={{ display: 'inline', marginRight: 4 }} />Accompagnés</span>
+            <span className="kpi-value">{pctAccompagne}%</span>
+            <span className="kpi-sub">{nbAvecProche} sur {nbReponduAccomp} candidats</span>
+          </div>
+        )}
       </div>
 
       <div className="dashboard-grid">

@@ -142,7 +142,7 @@ html, body, #root {
 /* KPI Cards */
 .kpi-grid {
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
   gap: 1rem;
   margin-bottom: 1.5rem;
 }
@@ -184,6 +184,7 @@ html, body, #root {
 .kpi-card.orange { border-left: 3px solid var(--orange); }
 .kpi-card.blue { border-left: 3px solid var(--blue); }
 .kpi-card.accent { border-left: 3px solid var(--accent); }
+.kpi-card.teal { border-left: 3px solid var(--teal); }
 
 /* Charts Section */
 .dashboard-grid {
@@ -1087,7 +1088,7 @@ html, body, #root {
 /* Responsive */
 @media (max-width: 1200px) {
   .kpi-grid {
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   }
 }
 

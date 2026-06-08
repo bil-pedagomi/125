@@ -171,6 +171,26 @@ export default function FicheEleve({ invitee, defaultOpen = false }) {
               <div className="label">Raison réservation</div>
               <div className="value">{invitee.raison_reservation || 'Non renseigné'}</div>
             </div>
+            {invitee.reserve_samedi === 'Oui' && (
+              <>
+                <div className="fiche-eleve-field">
+                  <div className="label">Accompagnement</div>
+                  <div className="value">
+                    {invitee.avec_un_proche === 'Oui'
+                      ? <span style={{ fontSize: 11, padding: '3px 9px', borderRadius: 12, fontWeight: 500, background: 'rgba(108,99,255,0.15)', color: '#a5b4fc' }}>Vient avec un proche</span>
+                      : invitee.avec_un_proche === 'Non'
+                        ? <span style={{ fontSize: 11, padding: '3px 9px', borderRadius: 12, fontWeight: 500, background: 'rgba(71,85,105,0.1)', color: '#64748b' }}>Vient seul·e</span>
+                        : 'Non renseigné'}
+                  </div>
+                </div>
+                {invitee.avec_un_proche === 'Oui' && (
+                  <div className="fiche-eleve-field">
+                    <div className="label">Accompagnant</div>
+                    <div className="value">{invitee.accompagnant_nom_complet || <span style={{ color: '#64748b' }}>—</span>}</div>
+                  </div>
+                )}
+              </>
+            )}
             {invitee.occasions_conduite && (
               <div className="fiche-eleve-field">
                 <div className="label">Occasions de conduite</div>
