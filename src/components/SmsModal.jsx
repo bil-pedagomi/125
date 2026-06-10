@@ -64,7 +64,7 @@ export default function SmsModal({ open, onClose, groupe, session, config, smsHi
   useEffect(() => {
     if (!open) return;
     const tplKey = `sms_template_groupe_${groupeNum}`;
-    const tpl = config?.[tplKey] || `Bonjour {prenom}, rappel formation 125 demain à ${horaire} à l'agence Pedagomi. Véhicule : {vehicule}. Merci d'arriver 15 min avant. À demain !`;
+    const tpl = config?.[tplKey] || 'Bonjour {prenom}, les groupes ont été constitués selon votre niveau. Formation demain à {horaire}, 28 rue Belgrand Paris 20e. Théorie puis pratique. Bonne journée !';
     setTemplate(tpl);
     setSendResult(null);
     setSaved(false);
