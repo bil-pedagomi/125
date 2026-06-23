@@ -74,6 +74,15 @@ export function formatName(name) {
   return `${prenom} ${nom}`;
 }
 
+// Format a group's REAL start time ("10:00", "14:30") for SMS text → "10h", "14h30".
+// Shared source of truth: used both to build SMS messages AND to compare the
+// hour actually sent (sms_queue.heure_groupe) against a group's current hour.
+export function formatHeureSms(h) {
+  if (!h) return '?';
+  const [hh, mm] = String(h).split(':');
+  return (mm && mm !== '00') ? `${parseInt(hh, 10)}h${mm}` : `${parseInt(hh, 10)}h`;
+}
+
 export function formatDate(dateStr) {
   if (!dateStr) return '—';
   const d = new Date(dateStr);

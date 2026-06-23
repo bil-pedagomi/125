@@ -1,18 +1,11 @@
 import { useState, useEffect, useMemo } from 'react';
 import { X, Send, Save, Loader, Check, AlertTriangle } from 'lucide-react';
-import { toE164, genererMessageFromTemplate, sendSMSViaEdgeFunction, saveSmsTemplate } from '../utils';
+import { toE164, genererMessageFromTemplate, sendSMSViaEdgeFunction, saveSmsTemplate, formatHeureSms } from '../utils';
 
 // Canonical SMS template key. The two legacy per-group templates are unified
 // into this single hour-agnostic base ({horaire} injects the real hour), so
 // template selection is independent of the (chronologically renumbered) group.
 const SMS_TEMPLATE_KEY = 'sms_template_groupe_1';
-
-// Format a group's REAL start time ("10:00", "14:30") for SMS text → "10h", "14h30".
-function formatHeureSms(h) {
-  if (!h) return '?';
-  const [hh, mm] = String(h).split(':');
-  return (mm && mm !== '00') ? `${parseInt(hh, 10)}h${mm}` : `${parseInt(hh, 10)}h`;
-}
 
 function countSms(len) {
   if (len <= 160) return 1;

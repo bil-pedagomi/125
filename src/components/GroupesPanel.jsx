@@ -3,7 +3,7 @@ import { RefreshCw, Check, AlertTriangle, Pencil, MessageSquare, Send, CheckCirc
 import Avatar from './Avatar';
 import SmsModal from './SmsModal';
 import SmsHistorique from './SmsHistorique';
-import { getNiveauStyle, getNiveauLabel, repartirGroupes, fetchGroupes, fetchGroupesMeta, saveGroupes, heureForGroupe, MAX_PAR_GROUPE, MAX_SCOOTERS, computeSatisfaction, fetchConfig, toE164, fetchSMSHistory, formatName } from '../utils';
+import { getNiveauStyle, getNiveauLabel, repartirGroupes, fetchGroupes, fetchGroupesMeta, saveGroupes, heureForGroupe, MAX_PAR_GROUPE, MAX_SCOOTERS, computeSatisfaction, fetchConfig, toE164, fetchSMSHistory, formatName, formatHeureSms } from '../utils';
 import useIsMobile from '../hooks/useIsMobile';
 
 const CRENEAU_DOT = {
@@ -40,6 +40,33 @@ function getValidationErrors(groupes) {
     });
   });
   return errors;
+}
+
+// An sms_queue.heure_groupe that is an actual hour ("10h", "14h30"), i.e. a
+// cockpit group reminder — excludes the relance_* pre-formation SMS.
+const HEURE_GROUPE_RE = /^\d{1,2}h\d{0,2}$/;
+
+// Notification status of a member vs the group's CURRENT hour, derived from
+// sms_queue (single reliable source). Returns 'prevenu' | 're-prevenir' | 'non'.
+// - 'prevenu'     : a 'sent' SMS exists whose sent hour === the group's current hour
+// - 're-prevenir' : a 'sent' SMS exists but for a DIFFERENT hour (horaire changed since)
+// - 'non'         : no 'sent' group SMS for this member
+// Match by invitee_uuid (primary) then E164 phone (fallback). smsRows is already
+// scoped to this event by fetchSMSHistory.
+function memberNotifStatus(membre, currentHeure, smsRows) {
+  const key = String(membre.invitee_uuid ?? membre.id ?? membre.email ?? '');
+  const phone = toE164(membre.phone);
+  const rows = smsRows.filter(r =>
+    r.statut === 'sent' &&
+    HEURE_GROUPE_RE.test(String(r.heure_groupe || '')) &&
+    (
+      (r.invitee_uuid != null && String(r.invitee_uuid) === key) ||
+      (phone && toE164(r.telephone) === phone)
+    )
+  );
+  if (rows.length === 0) return 'non';
+  rows.sort((a, b) => new Date(b.sent_at || b.created_at || 0) - new Date(a.sent_at || a.created_at || 0));
+  return String(rows[0].heure_groupe) === formatHeureSms(currentHeure) ? 'prevenu' : 're-prevenir';
 }
 
 // Sort groups by start time (ascending) and renumber 1..k. Chronological
@@ -105,6 +132,7 @@ export default function GroupesPanel({ session }) {
   const [nowTick, setNowTick] = useState(Date.now());
   const [config, setConfig] = useState(null);
   const [smsHistory, setSmsHistory] = useState({});
+  const [smsRows, setSmsRows] = useState([]); // raw sms_queue rows (this event) for notif-status derivation
   const [smsModalGroupe, setSmsModalGroupe] = useState(null);
 
   // Tick every 30s so the "il y a X" label stays fresh
@@ -135,6 +163,7 @@ export default function GroupesPanel({ session }) {
           map[key].push(r);
         });
         setSmsHistory(map);
+        setSmsRows(rows);
       })
       .catch(e => console.error('Erreur chargement historique SMS:', e));
     return () => { cancelled = true; };
@@ -150,6 +179,7 @@ export default function GroupesPanel({ session }) {
         map[key].push(r);
       });
       setSmsHistory(map);
+      setSmsRows(rows);
     } catch (e) {
       console.error('Erreur refresh historique SMS:', e);
     }
@@ -440,6 +470,10 @@ export default function GroupesPanel({ session }) {
             const cap = g.capacite ?? MAX_PAR_GROUPE;
             const over = g.membres.length > cap;
             const empty = g.membres.length === 0;
+            // Notification status per member (derived from sms_queue) + group aggregate
+            const notif = g.membres.map(m => memberNotifStatus(m, g.heure, smsRows));
+            const nbPrevenu = notif.filter(s => s === 'prevenu').length;
+            const nbRePrevenir = notif.filter(s => s === 're-prevenir').length;
             return (
               <div key={g.numero} className="groupe-col">
                 <div className="groupe-header">
@@ -510,6 +544,18 @@ export default function GroupesPanel({ session }) {
                       Complet ({cap}/{cap})
                     </div>
                   )}
+                  {!empty && (
+                    nbPrevenu === g.membres.length ? (
+                      <div style={{ marginTop: 4, fontSize: 11, fontWeight: 600, color: '#10b981' }}>
+                        ✅ Groupe prévenu de son horaire
+                      </div>
+                    ) : (
+                      <div style={{ marginTop: 4, fontSize: 11, fontWeight: 600, color: '#f59e0b' }}>
+                        ⚠️ {nbPrevenu}/{g.membres.length} prévenu{nbPrevenu > 1 ? 's' : ''}
+                        {nbRePrevenir > 0 ? ` (${nbRePrevenir} à re-prévenir)` : ''}
+                      </div>
+                    )
+                  )}
                 </div>
 
                 {scooters.length > 0 && (
@@ -517,7 +563,7 @@ export default function GroupesPanel({ session }) {
                     <div className="groupe-section-label">🛵 Scooters ({scooters.length})</div>
                     {scooters.map((m, mi) => {
                       const realIdx = g.membres.indexOf(m);
-                      return renderMembre(m, gIdx, realIdx, groupes.length, moveToGroupe, toggleRole, isMobile, { history: smsHistory, onSend: openSmsModalForMember });
+                      return renderMembre(m, gIdx, realIdx, groupes.length, moveToGroupe, toggleRole, isMobile, { history: smsHistory, onSend: openSmsModalForMember }, notif[realIdx]);
                     })}
                   </>
                 )}
@@ -527,7 +573,7 @@ export default function GroupesPanel({ session }) {
                     <div className="groupe-section-label">🚗 Voiture ({voitures.length})</div>
                     {voitures.map((m, mi) => {
                       const realIdx = g.membres.indexOf(m);
-                      return renderMembre(m, gIdx, realIdx, groupes.length, moveToGroupe, toggleRole, isMobile, { history: smsHistory, onSend: openSmsModalForMember });
+                      return renderMembre(m, gIdx, realIdx, groupes.length, moveToGroupe, toggleRole, isMobile, { history: smsHistory, onSend: openSmsModalForMember }, notif[realIdx]);
                     })}
                   </>
                 )}
@@ -562,7 +608,7 @@ export default function GroupesPanel({ session }) {
   );
 }
 
-function renderMembre(m, gIdx, memIdx, nbGroupes, moveToGroupe, toggleRole, isMobile, smsCtx) {
+function renderMembre(m, gIdx, memIdx, nbGroupes, moveToGroupe, toggleRole, isMobile, smsCtx, notifStatus) {
   const nStyle = getNiveauStyle(m);
   const label = nStyle.label;
   const crType = getCreneauType(m.creneau_prefere);
@@ -586,6 +632,24 @@ function renderMembre(m, gIdx, memIdx, nbGroupes, moveToGroupe, toggleRole, isMo
         <span className="groupe-membre-niveau" style={{ color: nStyle.badgeColor }}>
           {label}
         </span>
+        {notifStatus === 'prevenu' && (
+          <span style={{
+            fontSize: 9, padding: '1px 6px', borderRadius: 8, fontWeight: 700, marginTop: 2, marginLeft: 6,
+            display: 'inline-flex', alignItems: 'center', gap: 3,
+            background: 'rgba(16,185,129,0.15)', color: '#10b981',
+          }} title="SMS envoyé pour l'horaire actuel">
+            ✅ prévenu
+          </span>
+        )}
+        {notifStatus === 're-prevenir' && (
+          <span style={{
+            fontSize: 9, padding: '1px 6px', borderRadius: 8, fontWeight: 700, marginTop: 2, marginLeft: 6,
+            display: 'inline-flex', alignItems: 'center', gap: 3,
+            background: 'rgba(245,158,11,0.15)', color: '#f59e0b',
+          }} title="Un SMS a été envoyé, mais l'horaire du groupe a changé depuis">
+            ⚠️ à re-prévenir
+          </span>
+        )}
         {m.creneau_prefere && (
           <span style={{
             fontSize: 9, padding: '1px 6px', borderRadius: 8, fontWeight: 600, marginTop: 2,
