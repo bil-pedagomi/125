@@ -19,6 +19,13 @@ function getCreneauType(pref) {
   return 'indif';
 }
 
+// A student whose level can't justify a scooter on its own. The AUTO algorithm
+// never puts these on a scooter, but a human may override it manually.
+const NIVEAU_INELIGIBLE_SCOOTER = ['Jamais conduit', 'Formulaire manquant', 'Non renseigné'];
+function isIneligibleScooter(m) {
+  return NIVEAU_INELIGIBLE_SCOOTER.includes(getNiveauLabel(m));
+}
+
 function getValidationErrors(groupes) {
   const errors = [];
   groupes.forEach(g => {
@@ -28,14 +35,16 @@ function getValidationErrors(groupes) {
       errors.push({ type: 'warn', groupe: g.numero, msg: `Groupe ${g.numero} : capacité dépassée (${g.membres.length}/${cap})` });
     }
     const scooterCount = g.membres.filter(m => m.role === 'scooter').length;
-    // Physical PCX scooters available per session — real constraint.
+    // Physical PCX scooters per session — SOFT limit: a manual override may
+    // exceed it → warn, never block (the human decides).
     if (scooterCount > MAX_SCOOTERS) {
       errors.push({ type: 'warn', groupe: g.numero, msg: `Groupe ${g.numero} : ${scooterCount} scooters (max ${MAX_SCOOTERS})` });
     }
     g.membres.forEach(m => {
-      const label = getNiveauLabel(m);
-      if (m.role === 'scooter' && (label === 'Jamais conduit' || label === 'Formulaire manquant')) {
-        errors.push({ type: 'error', groupe: g.numero, msg: `${m.name || m.email} ne peut pas être en scooter (${label})` });
+      // Manual scooter override on an unverified level → WARN (not a blocker),
+      // otherwise saving would be impossible and the override pointless.
+      if (m.role === 'scooter' && isIneligibleScooter(m)) {
+        errors.push({ type: 'warn', groupe: g.numero, msg: `${m.name || m.email} : scooter forcé — niveau non vérifié (${getNiveauLabel(m)})` });
       }
     });
   });
@@ -348,14 +357,14 @@ export default function GroupesPanel({ session }) {
     void persistGroupes(next);
   }, [groupes, persistGroupes]);
 
+  // Manual role toggle. The human can always override: no hard block — neither
+  // for an unverified level nor for the 3-scooter limit. Overruns are surfaced
+  // as warnings (badges), never refused. modifie_manuellement marks it so a
+  // routine save preserves it; only an explicit Regénérer resets it.
   const toggleRole = useCallback((gIdx, memIdx) => {
     if (!groupes) return;
     const next = groupes.map(g => ({ ...g, membres: [...g.membres] }));
     const m = { ...next[gIdx].membres[memIdx] };
-    const label = getNiveauLabel(m);
-    if (m.role === 'voiture' && (label === 'Jamais conduit' || label === 'Formulaire manquant')) {
-      return; // Block: can't put on scooter
-    }
     m.role = m.role === 'scooter' ? 'voiture' : 'scooter';
     m.modifie_manuellement = true;
     next[gIdx].membres[memIdx] = m;
@@ -613,7 +622,8 @@ function renderMembre(m, gIdx, memIdx, nbGroupes, moveToGroupe, toggleRole, isMo
   const label = nStyle.label;
   const crType = getCreneauType(m.creneau_prefere);
   const dot = CRENEAU_DOT[crType];
-  const canToggleScooter = !(m.role === 'voiture' && (label === 'Jamais conduit' || label === 'Formulaire manquant'));
+  // Manual scooter override on an unverified level: shown as a warning, never blocked.
+  const scooterOverride = m.role === 'scooter' && isIneligibleScooter(m);
   const isMismatched = (crType === 'matin' && gIdx !== 0) || (crType === 'aprem' && gIdx === 0);
 
   return (
@@ -632,6 +642,15 @@ function renderMembre(m, gIdx, memIdx, nbGroupes, moveToGroupe, toggleRole, isMo
         <span className="groupe-membre-niveau" style={{ color: nStyle.badgeColor }}>
           {label}
         </span>
+        {scooterOverride && (
+          <span style={{
+            fontSize: 9, padding: '1px 6px', borderRadius: 8, fontWeight: 700, marginTop: 2, marginLeft: 6,
+            display: 'inline-flex', alignItems: 'center', gap: 3,
+            background: 'rgba(245,158,11,0.15)', color: '#f59e0b',
+          }} title="Scooter forcé manuellement alors que le niveau n'est pas vérifié (formulaire manquant / jamais conduit / non renseigné)">
+            ⚠️ niveau non vérifié
+          </span>
+        )}
         {notifStatus === 'prevenu' && (
           <span style={{
             fontSize: 9, padding: '1px 6px', borderRadius: 8, fontWeight: 700, marginTop: 2, marginLeft: 6,
@@ -684,7 +703,6 @@ function renderMembre(m, gIdx, memIdx, nbGroupes, moveToGroupe, toggleRole, isMo
         <button
           className="groupe-btn-sm"
           onClick={() => toggleRole(gIdx, memIdx)}
-          disabled={!canToggleScooter && m.role === 'voiture'}
           style={{
             background: m.role === 'scooter' ? 'rgba(226,75,74,0.15)' : 'rgba(16,185,129,0.15)',
             color: m.role === 'scooter' ? '#E24B4A' : '#10b981',
