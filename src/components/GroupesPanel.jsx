@@ -42,6 +42,14 @@ function getValidationErrors(groupes) {
   return errors;
 }
 
+// Sort groups by start time (ascending) and renumber 1..k. Chronological
+// order drives everything: earliest group = Groupe 1. Pure helper.
+function sortAndRenumber(groupes) {
+  return [...groupes]
+    .sort((a, b) => String(a.heure || '').localeCompare(String(b.heure || '')))
+    .map((g, i) => ({ ...g, numero: i + 1 }));
+}
+
 const CSS = `
 .groupes-container { display: flex; gap: 16px; flex-wrap: wrap; }
 .groupe-col { flex: 1; min-width: 280px; background: #12172a; border-radius: 10px; border: 1px solid #1e2640; overflow: hidden; }
@@ -238,7 +246,7 @@ export default function GroupesPanel({ session }) {
     if (hasExisting && !window.confirm(
       'Regénérer recalcule une répartition par défaut et écrase les ajustements manuels (heures, capacités, déplacements, groupes ajoutés). Continuer ?'
     )) return;
-    const result = repartirGroupes(invitees, algoDefaults);
+    const result = sortAndRenumber(repartirGroupes(invitees, algoDefaults));
     setGroupes(result);
     void persistGroupes(result);
   }, [invitees, algoDefaults, groupes, persistGroupes]);
@@ -261,7 +269,8 @@ export default function GroupesPanel({ session }) {
   // (display + SMS) use this real value, never the config default.
   const setHeureGroupe = useCallback((gIdx, heure) => {
     if (!groupes || !heure) return;
-    const next = groupes.map((g, i) => (i === gIdx ? { ...g, heure } : g));
+    // Changing an hour re-sorts and renumbers chronologically (earliest = G1).
+    const next = sortAndRenumber(groupes.map((g, i) => (i === gIdx ? { ...g, heure } : g)));
     setGroupes(next);
     void persistGroupes(next);
   }, [groupes, persistGroupes]);
@@ -278,14 +287,13 @@ export default function GroupesPanel({ session }) {
   // Add a (possibly empty) group with default heure + capacity, no cap on count.
   const addGroupe = useCallback(() => {
     const base = groupes || [];
-    const numero = base.length + 1;
     const newG = {
-      numero,
-      heure: heureForGroupe(numero - 1, algoDefaults.heuresDefaut),
+      numero: base.length + 1, // provisional — sortAndRenumber reassigns by hour
+      heure: heureForGroupe(base.length, algoDefaults.heuresDefaut),
       capacite: algoDefaults.maxParGroupe,
       membres: [],
     };
-    const next = [...base, newG];
+    const next = sortAndRenumber([...base, newG]);
     setGroupes(next);
     void persistGroupes(next);
   }, [groupes, algoDefaults, persistGroupes]);
@@ -295,9 +303,7 @@ export default function GroupesPanel({ session }) {
   // Remaining groups are renumbered contiguously (1..k).
   const deleteGroupe = useCallback((gIdx) => {
     if (!groupes || groupes[gIdx].membres.length > 0) return;
-    const next = groupes
-      .filter((_, i) => i !== gIdx)
-      .map((g, i) => ({ ...g, numero: i + 1 }));
+    const next = sortAndRenumber(groupes.filter((_, i) => i !== gIdx));
     setGroupes(next);
     void persistGroupes(next);
   }, [groupes, persistGroupes]);

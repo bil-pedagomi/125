@@ -2,6 +2,11 @@ import { useState, useEffect, useMemo } from 'react';
 import { X, Send, Save, Loader, Check, AlertTriangle } from 'lucide-react';
 import { toE164, genererMessageFromTemplate, sendSMSViaEdgeFunction, saveSmsTemplate } from '../utils';
 
+// Canonical SMS template key. The two legacy per-group templates are unified
+// into this single hour-agnostic base ({horaire} injects the real hour), so
+// template selection is independent of the (chronologically renumbered) group.
+const SMS_TEMPLATE_KEY = 'sms_template_groupe_1';
+
 // Format a group's REAL start time ("10:00", "14:30") for SMS text → "10h", "14h30".
 function formatHeureSms(h) {
   if (!h) return '?';
@@ -69,8 +74,10 @@ export default function SmsModal({ open, onClose, groupe, session, config, smsHi
 
   useEffect(() => {
     if (!open) return;
-    const tplKey = `sms_template_groupe_${groupeNum}`;
-    const tpl = config?.[tplKey] || 'Bonjour {prenom}, les groupes ont été constitués selon votre niveau. Formation demain à {horaire}, 28 rue Belgrand Paris 20e. Théorie puis pratique. Bonne journée !';
+    // Single canonical template, hour-agnostic: the real group hour is injected
+    // via {horaire}. Selection no longer depends on the group number, so the
+    // chronological renumbering never sends a wrong/mismatched hour.
+    const tpl = config?.[SMS_TEMPLATE_KEY] || 'Bonjour {prenom}, les groupes ont été constitués selon votre niveau. Formation demain à {horaire}, 28 rue Belgrand Paris 20e. Théorie puis pratique. Bonne journée !';
     setTemplate(tpl);
     setSendResult(null);
     setSaved(false);
@@ -106,7 +113,8 @@ export default function SmsModal({ open, onClose, groupe, session, config, smsHi
   const handleSaveTemplate = async () => {
     setSaving(true);
     try {
-      await saveSmsTemplate(groupeNum, template);
+      // Persist to the canonical key (matches what we read), not the group number.
+      await saveSmsTemplate(1, template);
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } catch (e) {
