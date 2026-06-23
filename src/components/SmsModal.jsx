@@ -2,7 +2,12 @@ import { useState, useEffect, useMemo } from 'react';
 import { X, Send, Save, Loader, Check, AlertTriangle } from 'lucide-react';
 import { toE164, genererMessageFromTemplate, sendSMSViaEdgeFunction, saveSmsTemplate } from '../utils';
 
-const HORAIRES = { 1: '10h', 2: '14h', 3: '18h' };
+// Format a group's REAL start time ("10:00", "14:30") for SMS text → "10h", "14h30".
+function formatHeureSms(h) {
+  if (!h) return '?';
+  const [hh, mm] = String(h).split(':');
+  return (mm && mm !== '00') ? `${parseInt(hh, 10)}h${mm}` : `${parseInt(hh, 10)}h`;
+}
 
 function countSms(len) {
   if (len <= 160) return 1;
@@ -58,7 +63,8 @@ export default function SmsModal({ open, onClose, groupe, session, config, smsHi
 
   const membres = groupe?.membres || [];
   const groupeNum = groupe?.numero || 1;
-  const horaire = HORAIRES[groupeNum] || groupe?.heure || '?';
+  // Use the group's REAL (possibly edited) start time, not a hardcoded map.
+  const horaire = formatHeureSms(groupe?.heure);
   const eventUuid = session?.id;
 
   useEffect(() => {
