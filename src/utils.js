@@ -74,6 +74,15 @@ export function formatName(name) {
   return `${prenom} ${nom}`;
 }
 
+// Format a group's REAL start time ("10:00", "14:30") for SMS text → "10h", "14h30".
+// Shared source of truth: used both to build SMS messages AND to compare the
+// hour actually sent (sms_queue.heure_groupe) against a group's current hour.
+export function formatHeureSms(h) {
+  if (!h) return '?';
+  const [hh, mm] = String(h).split(':');
+  return (mm && mm !== '00') ? `${parseInt(hh, 10)}h${mm}` : `${parseInt(hh, 10)}h`;
+}
+
 export function formatDate(dateStr) {
   if (!dateStr) return '—';
   const d = new Date(dateStr);
@@ -147,10 +156,26 @@ const SCORE_NIVEAU = {
   'Débutant': 2, 'Jamais conduit': 1, 'Formulaire manquant': 0, 'Non renseigné': 0,
 };
 
-const HEURES_GROUPES = ['10:00', '14:00', '18:00'];
+// Fallbacks only — the real defaults are read from f125_config and injected
+// into repartirGroupes(). These constants apply solely when the config is
+// unreachable, which keeps repartirGroupes pure and the app resilient.
+const DEFAULT_HEURES = ['10:00', '14:00'];
 export const MAX_PAR_GROUPE = 6;
-const MAX_SCOOTERS = 3;
+export const MAX_SCOOTERS = 3;
 export const MAX_VOITURE = 3;
+
+// Default start time for group `idx` (0-based). Uses the configured/fallback
+// list, then derives "last known hour + 1h per extra group" — never the old
+// `10 + idx*4` formula that produced 22:00 / 02:00 beyond 3 groups. Clamped
+// to 23:00 so an absurd number of groups can never wrap past midnight.
+export function heureForGroupe(idx, heuresDefaut) {
+  const list = (heuresDefaut && heuresDefaut.length) ? heuresDefaut : DEFAULT_HEURES;
+  if (idx < list.length) return list[idx];
+  const last = list[list.length - 1] || '10:00';
+  const [h, m] = last.split(':').map(Number);
+  const nh = Math.min(23, (h || 0) + (idx - (list.length - 1)));
+  return `${String(nh).padStart(2, '0')}:${String(m || 0).padStart(2, '0')}`;
+}
 
 export function getNiveauLabel(inv) {
   return getNiveauStyle(inv).label;
@@ -172,49 +197,52 @@ export function getPrefScore(val) {
   return 1;
 }
 
-export function repartirGroupes(invitees) {
+// Propose a DEFAULT split. Pure function: defaults come from f125_config and
+// are injected via `opts` (the component fetches the config and passes it in).
+// opts = { maxParGroupe, maxScooters, heuresDefaut }. Constants are fallbacks
+// only. The result is a *proposal* — heure, capacite and group count are all
+// editable afterwards in the UI and persisted independently.
+export function repartirGroupes(invitees, opts = {}) {
+  const maxParGroupe = opts.maxParGroupe ?? MAX_PAR_GROUPE;
+  const maxScooters = opts.maxScooters ?? MAX_SCOOTERS;
+  const heuresDefaut = opts.heuresDefaut;
   const nbEleves = invitees.length;
 
   // Helper: assign roles within a group.
-  // Business rule: max 3 scooters + max 3 voitures = 6 per group.
-  // Top 3 qualified → scooter; next 3 → voiture. Overflow falls back to
-  // voiture (a validation alert will flag the group as invalid).
+  // Business rule: up to `maxScooters` physical PCX scooters; the strongest
+  // riders get them, everyone else drives a car. (No hard car cap — car is the
+  // fallback role; the soft capacity limit is enforced/surfaced per group.)
   const assignRoles = (membres) => {
     const sortedM = [...membres].sort((a, b) => getNiveauScore(b) - getNiveauScore(a));
     let scooterCount = 0;
-    let voitureCount = 0;
     return sortedM.map((inv) => {
       const label = getNiveauLabel(inv);
       const peutScooter = label !== 'Jamais conduit'
         && label !== 'Formulaire manquant'
         && label !== 'Non renseigné';
       let role;
-      if (peutScooter && scooterCount < MAX_SCOOTERS) {
+      if (peutScooter && scooterCount < maxScooters) {
         role = 'scooter';
         scooterCount++;
-      } else if (voitureCount < MAX_VOITURE) {
-        role = 'voiture';
-        voitureCount++;
       } else {
-        // Overflow — keep assigning to voiture so the record stays valid;
-        // getValidationErrors() will surface the breach.
         role = 'voiture';
-        voitureCount++;
       }
       return { ...inv, role, modifie_manuellement: false, ordre_passage: null, note: '' };
     });
   };
 
-  // Single group case: everyone at 10:00
-  if (nbEleves <= MAX_PAR_GROUPE) {
+  // Single group case: everyone at the first default hour
+  if (nbEleves <= maxParGroupe) {
     return [{
       numero: 1,
-      heure: HEURES_GROUPES[0],
+      heure: heureForGroupe(0, heuresDefaut),
+      capacite: maxParGroupe,
       membres: assignRoles(invitees),
     }];
   }
 
-  const nbGroupes = Math.ceil(nbEleves / MAX_PAR_GROUPE);
+  // Default number of groups = what it takes to seat everyone at capacity.
+  const nbGroupes = Math.ceil(nbEleves / maxParGroupe);
 
   // PHASE 1 — Sort by preference DESC (tôt matin > matin > indifferent > aprem),
   //           then by niveau DESC as tiebreaker
@@ -226,12 +254,12 @@ export function repartirGroupes(invitees) {
 
   // PHASE 2 — Slice into groups: morning gets the first `tailleMatin` students
   //           (those with strongest morning preference), rest fills afternoon
-  //           groups to MAX. Morning group size = remainder to preserve buffer.
-  const tailleMatin = nbEleves - (nbGroupes - 1) * MAX_PAR_GROUPE;
+  //           groups to capacity. Morning group size = remainder to preserve buffer.
+  const tailleMatin = nbEleves - (nbGroupes - 1) * maxParGroupe;
   const buckets = [sorted.slice(0, tailleMatin)];
   for (let i = 1; i < nbGroupes; i++) {
-    const start = tailleMatin + (i - 1) * MAX_PAR_GROUPE;
-    buckets.push(sorted.slice(start, start + MAX_PAR_GROUPE));
+    const start = tailleMatin + (i - 1) * maxParGroupe;
+    buckets.push(sorted.slice(start, start + maxParGroupe));
   }
 
   // PHASE 3 — Light level homogenization (2-group case only): if niveau
@@ -264,7 +292,8 @@ export function repartirGroupes(invitees) {
 
   return buckets.map((membres, idx) => ({
     numero: idx + 1,
-    heure: HEURES_GROUPES[idx] || `${10 + idx * 4}:00`,
+    heure: heureForGroupe(idx, heuresDefaut),
+    capacite: maxParGroupe,
     membres: assignRoles(membres),
   }));
 }
@@ -313,6 +342,28 @@ export async function fetchGroupes(eventUuid) {
   return res.json();
 }
 
+// Group metadata (heure / capacité / empty groups). Source of truth for a
+// group's start time and capacity, independent of its members.
+export async function fetchGroupesMeta(eventUuid) {
+  const url = `${SUPABASE_URL}/rest/v1/formation_groupes_meta?calendly_event_uuid=eq.${encodeURIComponent(eventUuid)}&order=numero`;
+  const res = await fetch(url, { headers: SB_HEADERS });
+  if (!res.ok) throw new Error(`Erreur fetch groupes meta: ${res.status}`);
+  return res.json();
+}
+
+// DELETE helper for PostgREST. Path must always carry an event filter so we
+// never wipe a whole table. 404 is treated as success (nothing to delete).
+async function sbDelete(path) {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+    method: 'DELETE',
+    headers: SB_HEADERS,
+  });
+  if (!res.ok && res.status !== 404) {
+    const errText = await res.text().catch(() => '');
+    throw new Error(`Erreur delete (${path}): ${res.status} — ${errText}`);
+  }
+}
+
 // Fetch the f125_config key/value table and return it as a flat object.
 // Never hardcode values that live in this table — always read from here.
 export async function fetchConfig() {
@@ -325,11 +376,11 @@ export async function fetchConfig() {
   return config;
 }
 
-// Generate the SMS message for one student. All dynamic values (heure,
-// adresse, telephone) come from the config object — nothing is hardcoded.
+// Generate the SMS message for one student. The hour is the group's REAL
+// (possibly edited) start time, passed in by the caller — never re-derived
+// from f125_config by group number. Address/phone still come from config.
 // dateFormation must be a Date object (e.g. new Date(session.start_time)).
-export function genererMessageSMS(prenom, dateFormation, numeroGroupe, config) {
-  const heure = config?.[`heure_groupe_${numeroGroupe}`] || '';
+export function genererMessageSMS(prenom, dateFormation, heure, config) {
   const dateFormatee = new Intl.DateTimeFormat('fr-FR', {
     weekday: 'long',
     day: 'numeric',
@@ -384,19 +435,32 @@ export async function saveSmsTemplate(groupeNum, template) {
   return res.json();
 }
 
+// Persist the CURRENT in-memory snapshot (routine save — no recomputation).
+// Keeps the DB exactly in sync with the UI state on every mutation:
+//  1. upsert member rows (heure mirrors the group's real heure)
+//  2. delete member rows that left every group (removed / regenerated away)
+//  3. upsert group metadata (heure / capacité, incl. empty groups)
+//  4. delete metadata of groups that no longer exist
+// Not wrapped in a transaction (mono-user, <=18 students → negligible risk);
+// each step has its own error handling.
 export async function saveGroupes(eventUuid, dateFormation, groupes) {
-  // Build rows for upsert. invitee_uuid is NOT NULL in the schema, so
-  // coerce to string and fall back to email if id is missing.
+  const event = String(eventUuid);
+
+  // --- 1. Member rows ---
+  // invitee_uuid is NOT NULL: coerce to string, fall back to email if id missing.
   const rows = [];
+  const inviteeUuids = [];
   groupes.forEach(g => {
     g.membres.forEach((m, i) => {
-      const uuid = m.invitee_uuid ?? m.id;
+      const raw = m.invitee_uuid ?? m.id;
+      const uuid = raw != null ? String(raw) : String(m.email);
+      inviteeUuids.push(uuid);
       rows.push({
-        calendly_event_uuid: String(eventUuid),
+        calendly_event_uuid: event,
         date_formation: dateFormation,
         groupe_numero: g.numero,
         heure_debut: g.heure,
-        invitee_uuid: uuid != null ? String(uuid) : String(m.email),
+        invitee_uuid: uuid,
         email: m.email,
         role: m.role,
         ordre_passage: i + 1,
@@ -407,24 +471,57 @@ export async function saveGroupes(eventUuid, dateFormation, groupes) {
     });
   });
 
-  // Single atomic UPSERT on the (calendly_event_uuid, invitee_uuid) unique
-  // constraint. Updates the row in place if it exists, inserts otherwise.
-  const res = await fetch(
-    `${SUPABASE_URL}/rest/v1/formation_groupes?on_conflict=calendly_event_uuid,invitee_uuid`,
-    {
-      method: 'POST',
-      headers: {
-        ...SB_HEADERS,
-        'Prefer': 'resolution=merge-duplicates, return=representation',
-      },
-      body: JSON.stringify(rows),
+  if (rows.length > 0) {
+    const res = await fetch(
+      `${SUPABASE_URL}/rest/v1/formation_groupes?on_conflict=calendly_event_uuid,invitee_uuid`,
+      {
+        method: 'POST',
+        headers: { ...SB_HEADERS, 'Prefer': 'resolution=merge-duplicates, return=representation' },
+        body: JSON.stringify(rows),
+      }
+    );
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      throw new Error(`Erreur save groupes: ${res.status} — ${errText}`);
     }
-  );
-  if (!res.ok) {
-    const errText = await res.text().catch(() => '');
-    throw new Error(`Erreur save groupes: ${res.status} — ${errText}`);
   }
-  return res.json();
+
+  // --- 2. Drop members no longer present in any group ---
+  const memberFilter = inviteeUuids.length > 0
+    ? `&invitee_uuid=not.in.(${inviteeUuids.map(u => `"${encodeURIComponent(u)}"`).join(',')})`
+    : '';
+  await sbDelete(`formation_groupes?calendly_event_uuid=eq.${encodeURIComponent(event)}${memberFilter}`);
+
+  // --- 3. Group metadata (heure / capacité / empty groups) ---
+  const metaRows = groupes.map(g => ({
+    calendly_event_uuid: event,
+    numero: g.numero,
+    heure: g.heure,
+    capacite: g.capacite ?? MAX_PAR_GROUPE,
+    date_formation: dateFormation,
+    updated_at: new Date().toISOString(),
+  }));
+  if (metaRows.length > 0) {
+    const res = await fetch(
+      `${SUPABASE_URL}/rest/v1/formation_groupes_meta?on_conflict=calendly_event_uuid,numero`,
+      {
+        method: 'POST',
+        headers: { ...SB_HEADERS, 'Prefer': 'resolution=merge-duplicates, return=representation' },
+        body: JSON.stringify(metaRows),
+      }
+    );
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      throw new Error(`Erreur save groupes meta: ${res.status} — ${errText}`);
+    }
+  }
+
+  // --- 4. Drop metadata of groups that no longer exist ---
+  const numeros = groupes.map(g => g.numero);
+  const metaFilter = numeros.length > 0 ? `&numero=not.in.(${numeros.join(',')})` : '';
+  await sbDelete(`formation_groupes_meta?calendly_event_uuid=eq.${encodeURIComponent(event)}${metaFilter}`);
+
+  return { ok: true };
 }
 
 export function consolidateData(raw) {

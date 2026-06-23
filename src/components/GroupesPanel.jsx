@@ -1,9 +1,9 @@
-import { useState, useEffect, useCallback } from 'react';
-import { RefreshCw, Check, AlertTriangle, Pencil, MessageSquare, Send, CheckCircle } from 'lucide-react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import { RefreshCw, Check, AlertTriangle, Pencil, MessageSquare, Send, CheckCircle, Plus, Trash2 } from 'lucide-react';
 import Avatar from './Avatar';
 import SmsModal from './SmsModal';
 import SmsHistorique from './SmsHistorique';
-import { getNiveauStyle, getNiveauLabel, getNiveauScore, repartirGroupes, fetchGroupes, saveGroupes, MAX_PAR_GROUPE, MAX_VOITURE, computeSatisfaction, fetchConfig, toE164, fetchSMSHistory, formatName } from '../utils';
+import { getNiveauStyle, getNiveauLabel, repartirGroupes, fetchGroupes, fetchGroupesMeta, saveGroupes, heureForGroupe, MAX_PAR_GROUPE, MAX_SCOOTERS, computeSatisfaction, fetchConfig, toE164, fetchSMSHistory, formatName, formatHeureSms } from '../utils';
 import useIsMobile from '../hooks/useIsMobile';
 
 const CRENEAU_DOT = {
@@ -22,16 +22,15 @@ function getCreneauType(pref) {
 function getValidationErrors(groupes) {
   const errors = [];
   groupes.forEach(g => {
-    if (g.membres.length > MAX_PAR_GROUPE) {
-      errors.push({ type: 'error', groupe: g.numero, msg: `Groupe ${g.numero} dépasse ${MAX_PAR_GROUPE} élèves (${g.membres.length})` });
+    const cap = g.capacite ?? MAX_PAR_GROUPE;
+    // Capacity is a SOFT limit: a manual move may exceed it → warn, never block.
+    if (g.membres.length > cap) {
+      errors.push({ type: 'warn', groupe: g.numero, msg: `Groupe ${g.numero} : capacité dépassée (${g.membres.length}/${cap})` });
     }
     const scooterCount = g.membres.filter(m => m.role === 'scooter').length;
-    const voitureCount = g.membres.filter(m => m.role === 'voiture').length;
-    if (scooterCount > 3) {
-      errors.push({ type: 'warn', groupe: g.numero, msg: `Groupe ${g.numero} : ${scooterCount} scooters (max 3)` });
-    }
-    if (voitureCount > MAX_VOITURE) {
-      errors.push({ type: 'warn', groupe: g.numero, msg: `Groupe ${g.numero} : ${voitureCount} élèves en voiture (max ${MAX_VOITURE})` });
+    // Physical PCX scooters available per session — real constraint.
+    if (scooterCount > MAX_SCOOTERS) {
+      errors.push({ type: 'warn', groupe: g.numero, msg: `Groupe ${g.numero} : ${scooterCount} scooters (max ${MAX_SCOOTERS})` });
     }
     g.membres.forEach(m => {
       const label = getNiveauLabel(m);
@@ -41,6 +40,41 @@ function getValidationErrors(groupes) {
     });
   });
   return errors;
+}
+
+// An sms_queue.heure_groupe that is an actual hour ("10h", "14h30"), i.e. a
+// cockpit group reminder — excludes the relance_* pre-formation SMS.
+const HEURE_GROUPE_RE = /^\d{1,2}h\d{0,2}$/;
+
+// Notification status of a member vs the group's CURRENT hour, derived from
+// sms_queue (single reliable source). Returns 'prevenu' | 're-prevenir' | 'non'.
+// - 'prevenu'     : a 'sent' SMS exists whose sent hour === the group's current hour
+// - 're-prevenir' : a 'sent' SMS exists but for a DIFFERENT hour (horaire changed since)
+// - 'non'         : no 'sent' group SMS for this member
+// Match by invitee_uuid (primary) then E164 phone (fallback). smsRows is already
+// scoped to this event by fetchSMSHistory.
+function memberNotifStatus(membre, currentHeure, smsRows) {
+  const key = String(membre.invitee_uuid ?? membre.id ?? membre.email ?? '');
+  const phone = toE164(membre.phone);
+  const rows = smsRows.filter(r =>
+    r.statut === 'sent' &&
+    HEURE_GROUPE_RE.test(String(r.heure_groupe || '')) &&
+    (
+      (r.invitee_uuid != null && String(r.invitee_uuid) === key) ||
+      (phone && toE164(r.telephone) === phone)
+    )
+  );
+  if (rows.length === 0) return 'non';
+  rows.sort((a, b) => new Date(b.sent_at || b.created_at || 0) - new Date(a.sent_at || a.created_at || 0));
+  return String(rows[0].heure_groupe) === formatHeureSms(currentHeure) ? 'prevenu' : 're-prevenir';
+}
+
+// Sort groups by start time (ascending) and renumber 1..k. Chronological
+// order drives everything: earliest group = Groupe 1. Pure helper.
+function sortAndRenumber(groupes) {
+  return [...groupes]
+    .sort((a, b) => String(a.heure || '').localeCompare(String(b.heure || '')))
+    .map((g, i) => ({ ...g, numero: i + 1 }));
 }
 
 const CSS = `
@@ -98,6 +132,7 @@ export default function GroupesPanel({ session }) {
   const [nowTick, setNowTick] = useState(Date.now());
   const [config, setConfig] = useState(null);
   const [smsHistory, setSmsHistory] = useState({});
+  const [smsRows, setSmsRows] = useState([]); // raw sms_queue rows (this event) for notif-status derivation
   const [smsModalGroupe, setSmsModalGroupe] = useState(null);
 
   // Tick every 30s so the "il y a X" label stays fresh
@@ -128,6 +163,7 @@ export default function GroupesPanel({ session }) {
           map[key].push(r);
         });
         setSmsHistory(map);
+        setSmsRows(rows);
       })
       .catch(e => console.error('Erreur chargement historique SMS:', e));
     return () => { cancelled = true; };
@@ -143,25 +179,44 @@ export default function GroupesPanel({ session }) {
         map[key].push(r);
       });
       setSmsHistory(map);
+      setSmsRows(rows);
     } catch (e) {
       console.error('Erreur refresh historique SMS:', e);
     }
   }, [eventUuid]);
 
-  // Load existing groups from DB. If rows already exist for this event,
-  // display them directly (do NOT re-run the algorithm).
+  // Load existing groups from DB. If data already exists for this event,
+  // display it directly (do NOT re-run the algorithm). Metadata carries the
+  // editable heure/capacité and lets empty groups exist; member rows fill them.
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const rows = await fetchGroupes(eventUuid);
+        const [rows, meta] = await Promise.all([
+          fetchGroupes(eventUuid),
+          fetchGroupesMeta(eventUuid),
+        ]);
         if (cancelled) return;
-        if (rows.length > 0) {
-          // Rebuild groupes from DB rows, merging with invitee data
+        if (rows.length > 0 || meta.length > 0) {
           const groupeMap = {};
+          // Seed groups from metadata (allows empty groups + real heure/capacité)
+          meta.forEach(mt => {
+            groupeMap[mt.numero] = {
+              numero: mt.numero,
+              heure: (mt.heure || '').slice(0, 5),
+              capacite: mt.capacite ?? MAX_PAR_GROUPE,
+              membres: [],
+            };
+          });
+          // Attach members; synthesize a group from legacy rows lacking metadata
           rows.forEach(r => {
             if (!groupeMap[r.groupe_numero]) {
-              groupeMap[r.groupe_numero] = { numero: r.groupe_numero, heure: r.heure_debut, membres: [] };
+              groupeMap[r.groupe_numero] = {
+                numero: r.groupe_numero,
+                heure: (r.heure_debut || '').slice(0, 5),
+                capacite: MAX_PAR_GROUPE,
+                membres: [],
+              };
             }
             const inv = invitees.find(i => i.email === r.email) || { name: r.email, email: r.email };
             groupeMap[r.groupe_numero].membres.push({
@@ -174,7 +229,7 @@ export default function GroupesPanel({ session }) {
             });
           });
           setGroupes(Object.values(groupeMap).sort((a, b) => a.numero - b.numero));
-          // Consider loaded rows as "already saved"
+          // Consider loaded data as "already saved"
           setLastSavedAt(Date.now());
         }
       } catch (e) {
@@ -201,11 +256,30 @@ export default function GroupesPanel({ session }) {
     setSaving(false);
   }, [eventUuid, dateFormation]);
 
+  // Default parameters injected into the (pure) algorithm. Single source of
+  // truth = f125_config; constants in utils.js only act as fallback.
+  const algoDefaults = useMemo(() => {
+    const heures = [config?.heure_groupe_1, config?.heure_groupe_2, config?.heure_groupe_3]
+      .filter(Boolean)
+      .map(h => String(h).slice(0, 5));
+    return {
+      maxParGroupe: parseInt(config?.max_eleves_par_groupe, 10) || MAX_PAR_GROUPE,
+      maxScooters: parseInt(config?.max_scooters, 10) || MAX_SCOOTERS,
+      heuresDefaut: heures.length ? heures : undefined,
+    };
+  }, [config]);
+
+  // EXPLICIT (re)generation: recomputes a default split and OVERWRITES manual
+  // edits. Confirmation required when groups already hold students.
   const generer = useCallback(() => {
-    const result = repartirGroupes(invitees);
+    const hasExisting = groupes && groupes.some(g => g.membres.length > 0);
+    if (hasExisting && !window.confirm(
+      'Regénérer recalcule une répartition par défaut et écrase les ajustements manuels (heures, capacités, déplacements, groupes ajoutés). Continuer ?'
+    )) return;
+    const result = sortAndRenumber(repartirGroupes(invitees, algoDefaults));
     setGroupes(result);
     void persistGroupes(result);
-  }, [invitees, persistGroupes]);
+  }, [invitees, algoDefaults, groupes, persistGroupes]);
 
   const sauvegarder = useCallback(() => {
     if (groupes) void persistGroupes(groupes);
@@ -221,21 +295,55 @@ export default function GroupesPanel({ session }) {
     setSmsModalGroupe({ ...groupes[gIdx], membres: [membre] });
   }, [groupes]);
 
-  const resetGroupe = useCallback((gIdx) => {
-    if (!groupes) return;
-    const result = repartirGroupes(invitees);
-    const next = [...groupes];
-    if (result[gIdx]) next[gIdx] = result[gIdx];
+  // Routine edit — change a group's start time, persisted. All readers
+  // (display + SMS) use this real value, never the config default.
+  const setHeureGroupe = useCallback((gIdx, heure) => {
+    if (!groupes || !heure) return;
+    // Changing an hour re-sorts and renumbers chronologically (earliest = G1).
+    const next = sortAndRenumber(groupes.map((g, i) => (i === gIdx ? { ...g, heure } : g)));
     setGroupes(next);
     void persistGroupes(next);
-  }, [groupes, invitees, persistGroupes]);
+  }, [groupes, persistGroupes]);
+
+  // Routine edit — change a group's capacity (soft limit), persisted.
+  const setCapaciteGroupe = useCallback((gIdx, raw) => {
+    if (!groupes) return;
+    const capacite = Math.max(1, parseInt(raw, 10) || 1);
+    const next = groupes.map((g, i) => (i === gIdx ? { ...g, capacite } : g));
+    setGroupes(next);
+    void persistGroupes(next);
+  }, [groupes, persistGroupes]);
+
+  // Add a (possibly empty) group with default heure + capacity, no cap on count.
+  const addGroupe = useCallback(() => {
+    const base = groupes || [];
+    const newG = {
+      numero: base.length + 1, // provisional — sortAndRenumber reassigns by hour
+      heure: heureForGroupe(base.length, algoDefaults.heuresDefaut),
+      capacite: algoDefaults.maxParGroupe,
+      membres: [],
+    };
+    const next = sortAndRenumber([...base, newG]);
+    setGroupes(next);
+    void persistGroupes(next);
+  }, [groupes, algoDefaults, persistGroupes]);
+
+  // Delete a group — blocked while it still holds students (safety). The UI
+  // disables the button in that case; this guard is a belt-and-braces check.
+  // Remaining groups are renumbered contiguously (1..k).
+  const deleteGroupe = useCallback((gIdx) => {
+    if (!groupes || groupes[gIdx].membres.length > 0) return;
+    const next = sortAndRenumber(groupes.filter((_, i) => i !== gIdx));
+    setGroupes(next);
+    void persistGroupes(next);
+  }, [groupes, persistGroupes]);
 
   const moveToGroupe = useCallback((fromG, memIdx, toG) => {
     if (!groupes) return;
     const next = groupes.map(g => ({ ...g, membres: [...g.membres] }));
     const [moved] = next[fromG].membres.splice(memIdx, 1);
     moved.modifie_manuellement = true;
-    next[toG].membres.push(moved);
+    next[toG].membres.push(moved); // soft limit: overflow allowed, surfaced by badge
     setGroupes(next);
     void persistGroupes(next);
   }, [groupes, persistGroupes]);
@@ -293,6 +401,16 @@ export default function GroupesPanel({ session }) {
           <RefreshCw size={13} />
           {groupes ? 'Regénérer' : 'Générer les groupes'}
         </button>
+        {groupes && (
+          <button
+            onClick={addGroupe}
+            style={{ background: 'rgba(16,185,129,0.15)', color: '#10b981' }}
+            title="Ajouter un groupe vide"
+          >
+            <Plus size={13} />
+            Ajouter un groupe
+          </button>
+        )}
         {groupes && saveError && (
           <button
             onClick={sauvegarder}
@@ -349,54 +467,95 @@ export default function GroupesPanel({ session }) {
           {groupes.map((g, gIdx) => {
             const scooters = g.membres.filter(m => m.role === 'scooter');
             const voitures = g.membres.filter(m => m.role === 'voiture');
+            const cap = g.capacite ?? MAX_PAR_GROUPE;
+            const over = g.membres.length > cap;
+            const empty = g.membres.length === 0;
+            // Notification status per member (derived from sms_queue) + group aggregate
+            const notif = g.membres.map(m => memberNotifStatus(m, g.heure, smsRows));
+            const nbPrevenu = notif.filter(s => s === 'prevenu').length;
+            const nbRePrevenir = notif.filter(s => s === 're-prevenir').length;
             return (
               <div key={g.numero} className="groupe-col">
                 <div className="groupe-header">
                   <div className="groupe-header-title">
                     <span>{g.numero === 1 ? '🕙' : g.numero === 2 ? '🕑' : '🕕'}</span>
-                    Groupe {g.numero} — {g.heure}
-                  </div>
-                  <div className="groupe-header-sub">
-                    {g.membres.length} élève{g.membres.length > 1 ? 's' : ''} · {scooters.length} 🛵 · {voitures.length} 🚗
+                    Groupe {g.numero}
+                    <input
+                      type="time"
+                      value={g.heure || ''}
+                      onChange={(e) => setHeureGroupe(gIdx, e.target.value)}
+                      title="Heure de début du groupe"
+                      style={{
+                        marginLeft: 6, background: '#0e1222', border: '1px solid #1e2640',
+                        borderRadius: 6, color: '#e2e8f0', fontSize: 13, padding: '2px 6px',
+                        fontWeight: 600, colorScheme: 'dark',
+                      }}
+                    />
                     <button
-                      onClick={() => resetGroupe(gIdx)}
+                      onClick={() => deleteGroupe(gIdx)}
                       className="groupe-btn-sm"
-                      style={{ marginLeft: 8, background: 'rgba(107,113,148,0.15)', color: '#94a3b8' }}
+                      disabled={!empty}
+                      title={empty ? 'Supprimer ce groupe' : 'Déplacez d\'abord les élèves'}
+                      style={{
+                        marginLeft: 'auto', background: 'rgba(226,75,74,0.12)', color: '#E24B4A',
+                        display: 'inline-flex', alignItems: 'center',
+                      }}
                     >
-                      Réinitialiser
+                      <Trash2 size={11} />
                     </button>
+                  </div>
+                  <div className="groupe-header-sub" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    <span>{g.membres.length} élève{g.membres.length > 1 ? 's' : ''} · {scooters.length} 🛵 · {voitures.length} 🚗</span>
+                    <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, color: '#64748b' }}>
+                      Capacité
+                      <input
+                        type="number"
+                        min={1}
+                        value={cap}
+                        onChange={(e) => setCapaciteGroupe(gIdx, e.target.value)}
+                        title="Capacité du groupe (limite souple)"
+                        style={{
+                          width: 44, background: '#0e1222', border: '1px solid #1e2640',
+                          borderRadius: 6, color: '#e2e8f0', fontSize: 12, padding: '2px 6px',
+                          colorScheme: 'dark',
+                        }}
+                      />
+                    </label>
                     <button
                       onClick={() => openSmsModal(gIdx)}
                       className="groupe-btn-sm"
-                      disabled={!config}
-                      style={{ marginLeft: 4, background: 'rgba(108,99,255,0.15)', color: '#a5b4fc' }}
+                      disabled={!config || empty}
+                      style={{ background: 'rgba(108,99,255,0.15)', color: '#a5b4fc' }}
                       title="Envoyer les SMS à tout le groupe"
                     >
                       <Send size={10} /> SMS
                     </button>
                   </div>
-                  {gIdx === 0 && groupes.length >= 2 && (() => {
-                    const free = MAX_PAR_GROUPE - g.membres.length;
-                    if (free > 0) {
-                      return (
-                        <div style={{ marginTop: 6, fontSize: 11, fontWeight: 600, color: '#10b981' }}>
-                          ✅ {free} place{free > 1 ? 's' : ''} disponible{free > 1 ? 's' : ''}
-                        </div>
-                      );
-                    }
-                    if (groupes.length === 2) {
-                      return (
-                        <div style={{ marginTop: 6, fontSize: 11, fontWeight: 600, color: '#f59e0b' }}>
-                          ⚠️ Complet — toute nouvelle réservation nécessitera un 3ème groupe
-                        </div>
-                      );
-                    }
-                    return (
-                      <div style={{ marginTop: 6, fontSize: 11, fontWeight: 600, color: '#f59e0b' }}>
-                        ⚠️ Complet
+                  {over ? (
+                    <div style={{ marginTop: 6, fontSize: 11, fontWeight: 600, color: '#f59e0b' }}>
+                      ⚠️ Dépassement — {g.membres.length}/{cap} (limite souple)
+                    </div>
+                  ) : g.membres.length < cap ? (
+                    <div style={{ marginTop: 6, fontSize: 11, fontWeight: 600, color: '#10b981' }}>
+                      ✅ {cap - g.membres.length} place{cap - g.membres.length > 1 ? 's' : ''} disponible{cap - g.membres.length > 1 ? 's' : ''}
+                    </div>
+                  ) : (
+                    <div style={{ marginTop: 6, fontSize: 11, fontWeight: 600, color: '#64748b' }}>
+                      Complet ({cap}/{cap})
+                    </div>
+                  )}
+                  {!empty && (
+                    nbPrevenu === g.membres.length ? (
+                      <div style={{ marginTop: 4, fontSize: 11, fontWeight: 600, color: '#10b981' }}>
+                        ✅ Groupe prévenu de son horaire
                       </div>
-                    );
-                  })()}
+                    ) : (
+                      <div style={{ marginTop: 4, fontSize: 11, fontWeight: 600, color: '#f59e0b' }}>
+                        ⚠️ {nbPrevenu}/{g.membres.length} prévenu{nbPrevenu > 1 ? 's' : ''}
+                        {nbRePrevenir > 0 ? ` (${nbRePrevenir} à re-prévenir)` : ''}
+                      </div>
+                    )
+                  )}
                 </div>
 
                 {scooters.length > 0 && (
@@ -404,7 +563,7 @@ export default function GroupesPanel({ session }) {
                     <div className="groupe-section-label">🛵 Scooters ({scooters.length})</div>
                     {scooters.map((m, mi) => {
                       const realIdx = g.membres.indexOf(m);
-                      return renderMembre(m, gIdx, realIdx, groupes.length, moveToGroupe, toggleRole, isMobile, { history: smsHistory, onSend: openSmsModalForMember });
+                      return renderMembre(m, gIdx, realIdx, groupes.length, moveToGroupe, toggleRole, isMobile, { history: smsHistory, onSend: openSmsModalForMember }, notif[realIdx]);
                     })}
                   </>
                 )}
@@ -414,7 +573,7 @@ export default function GroupesPanel({ session }) {
                     <div className="groupe-section-label">🚗 Voiture ({voitures.length})</div>
                     {voitures.map((m, mi) => {
                       const realIdx = g.membres.indexOf(m);
-                      return renderMembre(m, gIdx, realIdx, groupes.length, moveToGroupe, toggleRole, isMobile, { history: smsHistory, onSend: openSmsModalForMember });
+                      return renderMembre(m, gIdx, realIdx, groupes.length, moveToGroupe, toggleRole, isMobile, { history: smsHistory, onSend: openSmsModalForMember }, notif[realIdx]);
                     })}
                   </>
                 )}
@@ -449,7 +608,7 @@ export default function GroupesPanel({ session }) {
   );
 }
 
-function renderMembre(m, gIdx, memIdx, nbGroupes, moveToGroupe, toggleRole, isMobile, smsCtx) {
+function renderMembre(m, gIdx, memIdx, nbGroupes, moveToGroupe, toggleRole, isMobile, smsCtx, notifStatus) {
   const nStyle = getNiveauStyle(m);
   const label = nStyle.label;
   const crType = getCreneauType(m.creneau_prefere);
@@ -473,6 +632,24 @@ function renderMembre(m, gIdx, memIdx, nbGroupes, moveToGroupe, toggleRole, isMo
         <span className="groupe-membre-niveau" style={{ color: nStyle.badgeColor }}>
           {label}
         </span>
+        {notifStatus === 'prevenu' && (
+          <span style={{
+            fontSize: 9, padding: '1px 6px', borderRadius: 8, fontWeight: 700, marginTop: 2, marginLeft: 6,
+            display: 'inline-flex', alignItems: 'center', gap: 3,
+            background: 'rgba(16,185,129,0.15)', color: '#10b981',
+          }} title="SMS envoyé pour l'horaire actuel">
+            ✅ prévenu
+          </span>
+        )}
+        {notifStatus === 're-prevenir' && (
+          <span style={{
+            fontSize: 9, padding: '1px 6px', borderRadius: 8, fontWeight: 700, marginTop: 2, marginLeft: 6,
+            display: 'inline-flex', alignItems: 'center', gap: 3,
+            background: 'rgba(245,158,11,0.15)', color: '#f59e0b',
+          }} title="Un SMS a été envoyé, mais l'horaire du groupe a changé depuis">
+            ⚠️ à re-prévenir
+          </span>
+        )}
         {m.creneau_prefere && (
           <span style={{
             fontSize: 9, padding: '1px 6px', borderRadius: 8, fontWeight: 600, marginTop: 2,
