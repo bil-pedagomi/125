@@ -65,12 +65,24 @@ export default function SmsModal({ open, onClose, groupe, session, config, smsHi
   const horaire = formatHeureSms(groupe?.heure);
   const eventUuid = session?.id;
 
+  // Real formation date, in French ("samedi 11 avril"), injected via {date}.
+  // Replaces the old hardcoded "demain", which was wrong whenever the groups
+  // were built more than a day before the session. Source: calendly start_time.
+  const dateFormatee = useMemo(() => {
+    if (!session?.start_time) return '';
+    return new Intl.DateTimeFormat('fr-FR', {
+      weekday: 'long',
+      day: 'numeric',
+      month: 'long',
+    }).format(new Date(session.start_time));
+  }, [session]);
+
   useEffect(() => {
     if (!open) return;
     // Single canonical template, hour-agnostic: the real group hour is injected
     // via {horaire}. Selection no longer depends on the group number, so the
     // chronological renumbering never sends a wrong/mismatched hour.
-    const tpl = config?.[SMS_TEMPLATE_KEY] || 'Bonjour {prenom}, les groupes ont été constitués selon votre niveau. Formation demain à {horaire}, 28 rue Belgrand Paris 20e. Théorie puis pratique. Bonne journée !';
+    const tpl = config?.[SMS_TEMPLATE_KEY] || "Bonjour {prenom}, rappel formation 125 le {date} a {horaire} a l'agence Pedagomi. Vehicule : {vehicule}. Merci d'arriver 15 min avant. A bientot !";
     setTemplate(tpl);
     setSendResult(null);
     setSaved(false);
@@ -92,8 +104,9 @@ export default function SmsModal({ open, onClose, groupe, session, config, smsHi
       prenom,
       horaire,
       vehicule: firstChecked.role || 'scooter',
+      date: dateFormatee,
     });
-  }, [firstChecked, template, horaire]);
+  }, [firstChecked, template, horaire, dateFormatee]);
 
   const charCount = previewMsg.length;
   const smsCount = countSms(charCount);
@@ -130,6 +143,7 @@ export default function SmsModal({ open, onClose, groupe, session, config, smsHi
         prenom,
         horaire,
         vehicule: m.role || 'scooter',
+        date: dateFormatee,
       });
       return {
         invitee_uuid: m.invitee_uuid || m.id || m.email,
@@ -224,7 +238,7 @@ export default function SmsModal({ open, onClose, groupe, session, config, smsHi
               </span>
             </div>
             <div className="sms-variables" style={{ marginBottom: 8 }}>
-              {['prenom', 'horaire', 'vehicule'].map(v => (
+              {['prenom', 'date', 'horaire', 'vehicule'].map(v => (
                 <button key={v} className="sms-var-chip" onClick={() => insertVar(v)} type="button">
                   {`{${v}}`}
                 </button>

@@ -33,8 +33,8 @@ ALTER TABLE sms_queue
 ```sql
 INSERT INTO f125_config (cle, valeur, label) VALUES
   ('sms_template_pre_formation', 'Bonjour {prenom}, pour votre formation 125 nous constituons des groupes de niveau la veille. Votre horaire de début (10h ou 14h) vous sera confirmé par SMS. Pedagomi', 'Template SMS pré-formation'),
-  ('sms_template_groupe_1', 'Bonjour {prenom}, rappel formation 125 demain à 10h à l''agence Pedagomi. Véhicule : {vehicule}. Merci d''arriver 15 min avant. À demain !', 'Template SMS Groupe 1 (10h)'),
-  ('sms_template_groupe_2', 'Bonjour {prenom}, rappel formation 125 demain à 14h à l''agence Pedagomi. Véhicule : {vehicule}. Merci d''arriver 15 min avant. À demain !', 'Template SMS Groupe 2 (14h)')
+  ('sms_template_groupe_1', 'Bonjour {prenom}, rappel formation 125 le {date} à {horaire} à l''agence Pedagomi. Véhicule : {vehicule}. Merci d''arriver 15 min avant. À bientôt !', 'Template SMS Groupe 1'),
+  ('sms_template_groupe_2', 'Bonjour {prenom}, rappel formation 125 le {date} à {horaire} à l''agence Pedagomi. Véhicule : {vehicule}. Merci d''arriver 15 min avant. À bientôt !', 'Template SMS Groupe 2')
 ON CONFLICT (cle) DO NOTHING;
 ```
 
