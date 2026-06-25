@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { RefreshCw, Check, AlertTriangle, Pencil, MessageSquare, Send, CheckCircle, Plus, Trash2 } from 'lucide-react';
 import Avatar from './Avatar';
-import SmsModal from './SmsModal';
+import SmsModal, { SMS_TEMPLATE_KEY } from './SmsModal';
 import SmsHistorique from './SmsHistorique';
 import { getNiveauStyle, getNiveauLabel, repartirGroupes, fetchGroupes, fetchGroupesMeta, saveGroupes, heureForGroupe, MAX_PAR_GROUPE, MAX_SCOOTERS, computeSatisfaction, fetchConfig, toE164, fetchSMSHistory, formatName, formatHeureSms } from '../utils';
 import useIsMobile from '../hooks/useIsMobile';
@@ -610,6 +610,7 @@ export default function GroupesPanel({ session }) {
         config={config}
         smsHistory={smsHistory}
         onSmsSent={refreshSmsHistory}
+        onTemplateSaved={(tpl) => setConfig(c => ({ ...(c || {}), [SMS_TEMPLATE_KEY]: tpl }))}
       />
 
       {groupes && <SmsHistorique eventUuid={eventUuid} />}

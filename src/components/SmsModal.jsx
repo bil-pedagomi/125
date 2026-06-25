@@ -5,7 +5,7 @@ import { toE164, genererMessageFromTemplate, sendSMSViaEdgeFunction, saveSmsTemp
 // Canonical SMS template key. The two legacy per-group templates are unified
 // into this single hour-agnostic base ({horaire} injects the real hour), so
 // template selection is independent of the (chronologically renumbered) group.
-const SMS_TEMPLATE_KEY = 'sms_template_groupe_1';
+export const SMS_TEMPLATE_KEY = 'sms_template_groupe_1';
 
 function countSms(len) {
   if (len <= 160) return 1;
@@ -50,7 +50,7 @@ function isFixe(phone) {
   return /^[12345]/.test(after33);
 }
 
-export default function SmsModal({ open, onClose, groupe, session, config, smsHistory, onSmsSent }) {
+export default function SmsModal({ open, onClose, groupe, session, config, smsHistory, onSmsSent, onTemplateSaved }) {
   const [template, setTemplate] = useState('');
   const [selected, setSelected] = useState({});
   const [sending, setSending] = useState(false);
@@ -121,6 +121,9 @@ export default function SmsModal({ open, onClose, groupe, session, config, smsHi
     try {
       // Persist to the canonical key (matches what we read), not the group number.
       await saveSmsTemplate(1, template);
+      // Reflect the saved value in the parent config so reopening the modal (same
+      // page session) shows the new template without waiting for a full reload.
+      if (onTemplateSaved) onTemplateSaved(template);
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } catch (e) {
