@@ -121,6 +121,15 @@ export function getSessionType(session) {
   return 'we';
 }
 
+// Classement semaine / week-end pour le DÉCOMPTE DE PAIE (groupes Adam).
+// DOIT rester identique au SQL de référence (source de vérité du décompte) :
+//   case when event_type_name = 'Formation 125 semaine' then 'semaine' else 'week_end' end
+// Volontairement plus strict que getSessionType (comparaison exacte, pas includes)
+// pour ne jamais diverger du calcul serveur.
+export function getGroupeType125(session) {
+  return session.event_type_name === 'Formation 125 semaine' ? 'semaine' : 'week_end';
+}
+
 export function getNiveauStyle(eleve) {
   const niveau = eleve?.niveau_scooter;
   const formRempli = eleve?.form_rempli;
@@ -522,6 +531,38 @@ export async function saveGroupes(eventUuid, dateFormation, groupes) {
   await sbDelete(`formation_groupes_meta?calendly_event_uuid=eq.${encodeURIComponent(event)}${metaFilter}`);
 
   return { ok: true };
+}
+
+// --- Attribution formateur (« fait par ») + override nb de groupes ---
+// Table public.f125_session_meta (clé = calendly_uuid, accessible via la clé
+// anon). Adam assure toutes les formations 125 par défaut ; une session passée
+// sur Bilel ne compte pas dans la paie d'Adam. nb_groupes surcharge le nombre
+// de groupes du créneau (défaut = 1 si null). Backend déjà en place — on ne
+// fait que lire/écrire cette table.
+
+// Toutes les lignes d'attribution, à fusionner par calendly_uuid côté client.
+export async function fetchSessionsMeta() {
+  const url = `${SUPABASE_URL}/rest/v1/f125_session_meta?select=calendly_uuid,fait_par,nb_groupes,note`;
+  const res = await fetch(url, { headers: SB_HEADERS });
+  if (!res.ok) throw new Error(`Erreur fetch attribution sessions: ${res.status}`);
+  return res.json();
+}
+
+// Upsert partiel keyé sur calendly_uuid. On n'envoie que les colonnes à
+// modifier : PostgREST (merge-duplicates) ne met à jour que celles présentes,
+// donc changer fait_par ne touche pas nb_groupes/note, et inversement.
+export async function upsertSessionMeta(meta) {
+  const url = `${SUPABASE_URL}/rest/v1/f125_session_meta?on_conflict=calendly_uuid`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { ...SB_HEADERS, 'Prefer': 'resolution=merge-duplicates, return=representation' },
+    body: JSON.stringify({ ...meta, updated_at: new Date().toISOString() }),
+  });
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '');
+    throw new Error(`Erreur upsert attribution session: ${res.status} — ${errText}`);
+  }
+  return res.json();
 }
 
 export function consolidateData(raw) {
