@@ -1,6 +1,6 @@
-import { useState, useMemo, useCallback } from 'react';
-import { CalendarDays, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, FileCheck, PhoneCall, Users, Euro, UsersRound } from 'lucide-react';
-import { formatDateShort, formatDate, getMonthKey, getMonthLabel, getSessionType, getNiveauStyle, formatName } from '../utils';
+import { useState, useMemo, useCallback, useEffect } from 'react';
+import { CalendarDays, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, FileCheck, PhoneCall, Users, Euro, UsersRound, UserCog } from 'lucide-react';
+import { formatDateShort, formatDate, getMonthKey, getMonthLabel, getSessionType, getGroupeType125, getNiveauStyle, formatName, fetchSessionsMeta, upsertSessionMeta } from '../utils';
 import FicheEleve from '../components/FicheEleve';
 import GroupesPanel from '../components/GroupesPanel';
 import Avatar from '../components/Avatar';
@@ -221,6 +221,69 @@ function buildMonthGrid(yearMonth) {
   return days;
 }
 
+// Petit badge « Bilel — non facturé Adam » réutilisé dans les listes / le calendrier.
+function BilelBadge({ compact }) {
+  return (
+    <span style={{
+      fontSize: compact ? '0.55rem' : 11, padding: compact ? '1px 5px' : '2px 8px',
+      borderRadius: 10, fontWeight: 700, whiteSpace: 'nowrap',
+      background: 'rgba(245,158,11,0.15)', color: '#f59e0b',
+      display: 'inline-flex', alignItems: 'center', gap: 4,
+    }}>
+      Bilel{compact ? '' : ' — non facturé Adam'}
+    </span>
+  );
+}
+
+// Contrôle par session : « Fait par » Adam ⇄ Bilel (défaut Adam) + override
+// optionnel du nombre de groupes du créneau (défaut 1). Écrit dans
+// f125_session_meta via upsert onConflict=calendly_uuid.
+function FaitParControl({ session, meta, onSetFaitPar, onSetNbGroupes }) {
+  const faitPar = meta?.fait_par || 'adam';
+  const nbGroupes = meta?.nb_groupes ?? '';
+  const segBase = {
+    padding: '5px 12px', borderRadius: 6, border: 'none', fontSize: 11, fontWeight: 700,
+    cursor: 'pointer', transition: 'background 0.15s, color 0.15s',
+  };
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+        <UserCog size={13} /> Fait par
+      </span>
+      <div style={{ display: 'inline-flex', background: 'rgba(107,113,148,0.12)', borderRadius: 8, padding: 2 }}>
+        <button
+          onClick={() => onSetFaitPar(session, 'adam')}
+          style={{ ...segBase, background: faitPar === 'adam' ? '#6c63ff' : 'transparent', color: faitPar === 'adam' ? '#fff' : '#94a3b8' }}
+        >
+          Adam
+        </button>
+        <button
+          onClick={() => onSetFaitPar(session, 'bilel')}
+          style={{ ...segBase, background: faitPar === 'bilel' ? '#f59e0b' : 'transparent', color: faitPar === 'bilel' ? '#1a1f30' : '#94a3b8' }}
+        >
+          Bilel
+        </button>
+      </div>
+      <label style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, color: '#64748b' }}>
+        Groupes
+        <input
+          type="number"
+          min={1}
+          value={nbGroupes}
+          placeholder="1"
+          onChange={(e) => onSetNbGroupes(session, e.target.value)}
+          title="Nombre de groupes de ce créneau (défaut 1 ; laisser vide dans le cas normal)"
+          style={{
+            width: 48, background: '#0e1222', border: '1px solid #1e2640', borderRadius: 6,
+            color: '#e2e8f0', fontSize: 12, padding: '3px 6px', colorScheme: 'dark',
+          }}
+        />
+      </label>
+      {faitPar === 'bilel' && <BilelBadge />}
+    </div>
+  );
+}
+
 function Agenda({ data }) {
   const { sessions, raw } = data;
   const caComparaison = raw?.ca_comparaison || [];
@@ -231,6 +294,42 @@ function Agenda({ data }) {
   const [typeFilter, setTypeFilter] = useState('all');
   const [expandedId, setExpandedId] = useState(null);
   const [detailView, setDetailView] = useState('table'); // 'table' | 'groupes'
+  // Attribution « fait par » + override nb groupes, keyée par calendly_uuid.
+  const [metaMap, setMetaMap] = useState({});
+
+  // Lecture initiale : toutes les lignes f125_session_meta, fusionnées ensuite
+  // par calendly_uuid pour afficher l'état courant de chaque session.
+  useEffect(() => {
+    let cancelled = false;
+    fetchSessionsMeta()
+      .then(rows => {
+        if (cancelled) return;
+        const map = {};
+        rows.forEach(r => { if (r.calendly_uuid) map[r.calendly_uuid] = r; });
+        setMetaMap(map);
+      })
+      .catch(e => console.error('Erreur chargement attribution sessions:', e));
+    return () => { cancelled = true; };
+  }, []);
+
+  // Upsert optimiste : on met à jour l'état local puis on persiste. On n'envoie
+  // que la colonne modifiée (merge-duplicates préserve les autres).
+  const applyMeta = useCallback((session, patch) => {
+    const uuid = session.calendly_uuid;
+    if (!uuid) return;
+    setMetaMap(prev => ({ ...prev, [uuid]: { ...(prev[uuid] || {}), calendly_uuid: uuid, ...patch } }));
+    upsertSessionMeta({ calendly_uuid: uuid, ...patch })
+      .catch(e => console.error('Erreur maj attribution:', e));
+  }, []);
+
+  const setFaitPar = useCallback((session, faitPar) => applyMeta(session, { fait_par: faitPar }), [applyMeta]);
+  const setNbGroupes = useCallback((session, raw) => {
+    const trimmed = String(raw).trim();
+    const n = trimmed === '' ? 1 : Math.max(1, parseInt(trimmed, 10) || 1);
+    applyMeta(session, { nb_groupes: n });
+  }, [applyMeta]);
+
+  const faitParOf = useCallback((s) => (metaMap[s.calendly_uuid]?.fait_par || 'adam'), [metaMap]);
 
   const months = useMemo(() => {
     const set = new Set();
@@ -303,6 +402,30 @@ function Agenda({ data }) {
     return { totalEleves, ca, pctAppele, pctForm, nbFormRempli, pctDejaConduit, niveaux, totalNiveaux };
   }, [filtered]);
 
+  // Récap paie du mois consulté — reproduit fidèlement le SQL de référence :
+  //   sum(coalesce(nb_groupes,1)) filter (where coalesce(fait_par,'adam') <> 'bilel')
+  //   classé par event_type_name ('Formation 125 semaine' → semaine, sinon week-end).
+  // La vue v_125_sessions est déjà filtrée formation_payee/active, mais on garde
+  // le garde-fou sur status. Le typeFilter (WE/SEM) n'affecte PAS ce décompte :
+  // on somme tout le mois. En vue « Tous les mois », on cumule tout.
+  const recapPaie = useMemo(() => {
+    const acc = { semaine: 0, week_end: 0, bilelSemaine: 0, bilelWeekEnd: 0 };
+    sessions.forEach(s => {
+      if (monthFilter !== 'all' && getMonthKey(s.start_time) !== monthFilter) return;
+      if (s.status && s.status !== 'active') return;
+      const meta = metaMap[s.calendly_uuid];
+      const faitPar = meta?.fait_par || 'adam';
+      const nb = meta?.nb_groupes != null ? meta.nb_groupes : 1;
+      const type = getGroupeType125(s); // 'semaine' | 'week_end'
+      if (faitPar === 'bilel') {
+        acc[type === 'semaine' ? 'bilelSemaine' : 'bilelWeekEnd'] += nb;
+      } else {
+        acc[type] += nb;
+      }
+    });
+    return { ...acc, bilelTotal: acc.bilelSemaine + acc.bilelWeekEnd };
+  }, [sessions, metaMap, monthFilter]);
+
   const toggleExpand = (id) => {
     setExpandedId(expandedId === id ? null : id);
   };
@@ -327,11 +450,26 @@ function Agenda({ data }) {
     const displayInvitees = invitees.length > 0 ? invitees : fallbackInvitees;
     const nbFormRempli = invitees.filter(i => i.form_rempli).length;
     const tauxForm = nbEleves > 0 ? Math.round((nbFormRempli / nbEleves) * 100) : 0;
+    const isBilel = faitParOf(s) === 'bilel';
 
     return (
-      <div className="session-detail-panel" style={{ marginTop: 8, borderRadius: 10 }}>
-        <div style={{ fontSize: 13, color: 'var(--accent-light)', fontWeight: 600, marginBottom: 8 }}>
-          {formatDateShort(s.start_time)} — {s.event_type_name || 'Formation 125'}
+      <div className="session-detail-panel" style={{
+        marginTop: 8, borderRadius: 10,
+        ...(isBilel ? { opacity: 0.72, borderLeft: '3px solid #f59e0b' } : {}),
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
+          <span style={{ fontSize: 13, color: 'var(--accent-light)', fontWeight: 600 }}>
+            {formatDateShort(s.start_time)} — {s.event_type_name || 'Formation 125'}
+          </span>
+          {isBilel && <BilelBadge />}
+        </div>
+        <div style={{ marginBottom: 10 }}>
+          <FaitParControl
+            session={s}
+            meta={metaMap[s.calendly_uuid]}
+            onSetFaitPar={setFaitPar}
+            onSetNbGroupes={setNbGroupes}
+          />
         </div>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
           <div className="session-detail-summary" style={{ flex: 1 }}>
@@ -395,13 +533,15 @@ function Agenda({ data }) {
     const nbEleves = invitees.length || s.nb_invitees || 0;
     const ca = nbEleves * PRICE;
     const isExpanded = expandedId === s.id;
+    const isBilel = faitParOf(s) === 'bilel';
 
     return (
       <div key={s.id}>
-        <div className="session-row-mobile" style={{ display: 'flex' }} onClick={() => toggleExpand(s.id)}>
+        <div className="session-row-mobile" style={{ display: 'flex', ...(isBilel ? { opacity: 0.6 } : {}) }} onClick={() => toggleExpand(s.id)}>
           <div className="srm-line1">
             <span className="session-date">{formatDateShort(s.start_time)}</span>
             <span className={`badge ${type}`}>{type === 'we' ? 'WE' : 'SEM'}</span>
+            {isBilel && <BilelBadge compact />}
             <span style={{ marginLeft: 'auto' }}>
               {isExpanded
                 ? <ChevronUp size={14} style={{ color: 'var(--text-muted)' }} />
@@ -534,6 +674,21 @@ function Agenda({ data }) {
             <span className="kpi-sub">Aucune donnée</span>
           )}
         </div>
+        <div className="kpi-card" style={{ borderLeft: '3px solid #6c63ff' }}>
+          <span className="kpi-label"><UserCog size={12} style={{ display: 'inline', marginRight: 4 }} />Groupes Adam (paie)</span>
+          <span className="kpi-value" style={{ fontSize: '1.1rem' }}>
+            <span title="Groupes semaine">semaine {recapPaie.semaine}</span>
+            <span style={{ color: 'var(--text-muted)', margin: '0 6px' }}>·</span>
+            <span title="Groupes week-end">week-end {recapPaie.week_end}</span>
+          </span>
+          {recapPaie.bilelTotal > 0 ? (
+            <span className="kpi-sub" style={{ color: '#f59e0b' }}>
+              dont {recapPaie.bilelTotal} faite{recapPaie.bilelTotal > 1 ? 's' : ''} par Bilel (exclue{recapPaie.bilelTotal > 1 ? 's' : ''})
+            </span>
+          ) : (
+            <span className="kpi-sub">hors sessions faites par Bilel</span>
+          )}
+        </div>
       </div>
 
       {/* DESKTOP: Month calendar view */}
@@ -566,15 +721,19 @@ function Agenda({ data }) {
                     const nbEleves = invitees.length || s.nb_invitees || 0;
                     const ca = nbEleves * PRICE;
                     const isActive = expandedId === s.id;
+                    const isBilel = faitParOf(s) === 'bilel';
                     return (
                       <div
                         key={s.id}
                         className={`cal-session${isActive ? ' active' : ''}`}
                         onClick={() => toggleExpand(s.id)}
+                        style={isBilel ? { opacity: 0.6 } : undefined}
+                        title={isBilel ? 'Fait par Bilel — non facturé Adam' : undefined}
                       >
                         <span className={`badge ${type}`} style={{ fontSize: '0.55rem', padding: '1px 5px' }}>
                           {type === 'we' ? 'WE' : 'SEM'}
                         </span>
+                        {isBilel && <BilelBadge compact />}
                         <span className="cal-session-text">
                           {nbEleves} él. · {ca.toLocaleString('fr-FR')}€
                         </span>
@@ -599,15 +758,17 @@ function Agenda({ data }) {
             const nbEleves = invitees.length || s.nb_invitees || 0;
             const ca = nbEleves * PRICE;
             const isExpanded = expandedId === s.id;
+            const isBilel = faitParOf(s) === 'bilel';
             return (
               <div key={s.id}>
-                <div className="session-row" style={{ cursor: 'pointer' }} onClick={() => toggleExpand(s.id)}>
+                <div className="session-row" style={{ cursor: 'pointer', ...(isBilel ? { opacity: 0.6 } : {}) }} onClick={() => toggleExpand(s.id)}>
                   <span className="session-date">{formatDateShort(s.start_time)}</span>
                   <span className="session-type">
                     <span className={`badge ${type}`}>{type === 'we' ? 'WE' : 'SEM'}</span>
                   </span>
-                  <span style={{ color: 'var(--text-secondary)', fontSize: '0.8125rem' }}>
+                  <span style={{ color: 'var(--text-secondary)', fontSize: '0.8125rem', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
                     {s.event_type_name || 'Formation 125'}
+                    {isBilel && <BilelBadge />}
                   </span>
                   <span className="session-eleves">{nbEleves} élève{nbEleves > 1 ? 's' : ''}</span>
                   <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
