@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { RefreshCw, Check, AlertTriangle, Pencil, MessageSquare, Send, CheckCircle, Plus, Trash2 } from 'lucide-react';
 import Avatar from './Avatar';
+import CarteButton from './CarteButton';
 import SmsModal from './SmsModal';
 import SmsHistorique from './SmsHistorique';
 import { getNiveauStyle, getNiveauLabel, repartirGroupes, fetchGroupes, fetchGroupesMeta, saveGroupes, heureForGroupe, MAX_PAR_GROUPE, MAX_SCOOTERS, computeSatisfaction, fetchConfig, toE164, fetchSMSHistory, formatName, formatHeureSms } from '../utils';
@@ -127,7 +128,7 @@ function formatTimeAgo(ts, now) {
   return `il y a ${h} h`;
 }
 
-export default function GroupesPanel({ session }) {
+export default function GroupesPanel({ session, cartes }) {
   const invitees = session.invitees || [];
   const eventUuid = session.id;
   const dateFormation = session.start_time ? session.start_time.split('T')[0] : null;
@@ -572,7 +573,7 @@ export default function GroupesPanel({ session }) {
                     <div className="groupe-section-label">🛵 Scooters ({scooters.length})</div>
                     {scooters.map((m, mi) => {
                       const realIdx = g.membres.indexOf(m);
-                      return renderMembre(m, gIdx, realIdx, groupes.length, moveToGroupe, toggleRole, isMobile, { history: smsHistory, onSend: openSmsModalForMember }, notif[realIdx]);
+                      return renderMembre(m, gIdx, realIdx, groupes.length, moveToGroupe, toggleRole, isMobile, { history: smsHistory, onSend: openSmsModalForMember }, notif[realIdx], cartes);
                     })}
                   </>
                 )}
@@ -582,7 +583,7 @@ export default function GroupesPanel({ session }) {
                     <div className="groupe-section-label">🚗 Voiture ({voitures.length})</div>
                     {voitures.map((m, mi) => {
                       const realIdx = g.membres.indexOf(m);
-                      return renderMembre(m, gIdx, realIdx, groupes.length, moveToGroupe, toggleRole, isMobile, { history: smsHistory, onSend: openSmsModalForMember }, notif[realIdx]);
+                      return renderMembre(m, gIdx, realIdx, groupes.length, moveToGroupe, toggleRole, isMobile, { history: smsHistory, onSend: openSmsModalForMember }, notif[realIdx], cartes);
                     })}
                   </>
                 )}
@@ -617,7 +618,7 @@ export default function GroupesPanel({ session }) {
   );
 }
 
-function renderMembre(m, gIdx, memIdx, nbGroupes, moveToGroupe, toggleRole, isMobile, smsCtx, notifStatus) {
+function renderMembre(m, gIdx, memIdx, nbGroupes, moveToGroupe, toggleRole, isMobile, smsCtx, notifStatus, cartes) {
   const nStyle = getNiveauStyle(m);
   const label = nStyle.label;
   const crType = getCreneauType(m.creneau_prefere);
@@ -678,6 +679,15 @@ function renderMembre(m, gIdx, memIdx, nbGroupes, moveToGroupe, toggleRole, isMo
           }}>
             {isMismatched && '⚠️ '}{crType === 'matin' ? 'Matin' : crType === 'aprem' ? 'Après-midi' : 'Indifférent'}
           </span>
+        )}
+        {cartes && m.invitee_uuid != null && (
+          <div style={{ marginTop: 4 }}>
+            <CarteButton
+              faite={!!cartes.faites[m.invitee_uuid]}
+              pending={!!cartes.pending[m.invitee_uuid]}
+              onToggle={() => cartes.toggle(m)}
+            />
+          </div>
         )}
       </div>
       <div className="groupe-membre-actions">

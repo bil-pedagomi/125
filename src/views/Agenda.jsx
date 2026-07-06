@@ -1,11 +1,13 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
-import { CalendarDays, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, FileCheck, PhoneCall, Users, Euro, UsersRound, UserCog } from 'lucide-react';
+import { CalendarDays, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, FileCheck, PhoneCall, Users, Euro, UsersRound, UserCog, CreditCard, AlertTriangle } from 'lucide-react';
 import { formatDateShort, formatDate, getMonthKey, getMonthLabel, getSessionType, getGroupeType125, getNiveauStyle, formatName, fetchSessionsMeta, upsertSessionMeta } from '../utils';
 import FicheEleve from '../components/FicheEleve';
 import GroupesPanel from '../components/GroupesPanel';
 import Avatar from '../components/Avatar';
 import PhoneLink from '../components/PhoneLink';
+import CarteButton from '../components/CarteButton';
 import useIsMobile from '../hooks/useIsMobile';
+import useCartes from '../hooks/useCartes';
 
 const PRICE = 199;
 const DAY_NAMES = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
@@ -35,19 +37,19 @@ const TABLE_CSS = `
 .inv-table .td-eleve-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 160px; }
 .inv-table .td-contact { font-size: 11px; color: #94a3b8; font-family: var(--font-mono); }
 .inv-table .td-contact-email { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 180px; }
-.inv-table .td-montant { font-family: var(--font-mono); font-weight: 600; font-size: 12px; color: #e2e8f0; white-space: nowrap; }
+.inv-table .col-carte { white-space: nowrap; }
 .inv-table .td-action { text-align: center; color: #64748b; }
 .inv-table .td-action svg { transition: transform 0.2s; }
 .inv-table tbody tr:hover .td-action svg { color: var(--accent); }
 @media (max-width: 768px) {
-  .inv-table .col-contact, .inv-table .col-montant { display: none; }
+  .inv-table .col-contact { display: none; }
   .inv-table thead th { padding: 8px 8px; font-size: 10px; }
   .inv-table tbody td { padding: 8px 8px; font-size: 12px; }
   .inv-table .td-eleve-name { max-width: 100px; }
 }
 `;
 
-function InviteesTable({ invitees, isMobile }) {
+function InviteesTable({ invitees, isMobile, cartes }) {
   const [sortKey, setSortKey] = useState('niveau');
   const [sortDir, setSortDir] = useState('asc');
   const [ficheId, setFicheId] = useState(null);
@@ -114,7 +116,7 @@ function InviteesTable({ invitees, isMobile }) {
             <th className="col-contact" onClick={() => handleSort('nom')}>Contact</th>
             <th onClick={() => handleSort('formulaire')}>Formulaire{arrow('formulaire')}</th>
             <th onClick={() => handleSort('appels')}>Appels{arrow('appels')}</th>
-            <th className="col-montant">Montant</th>
+            <th className="col-carte" style={{ cursor: 'default' }}>Carte</th>
             <th style={{ width: 40, cursor: 'default' }}></th>
           </tr>
         </thead>
@@ -162,8 +164,14 @@ function InviteesTable({ invitees, isMobile }) {
                     {inv.nb_appels || 0} appel{(inv.nb_appels || 0) > 1 ? 's' : ''}
                   </span>
                 </td>
-                <td className="col-montant">
-                  <span className="td-montant">{PRICE} €</span>
+                <td className="col-carte" onClick={(e) => e.stopPropagation()}>
+                  {inv.invitee_uuid != null && cartes
+                    ? <CarteButton
+                        faite={!!cartes.faites[inv.invitee_uuid]}
+                        pending={!!cartes.pending[inv.invitee_uuid]}
+                        onToggle={() => cartes.toggle(inv)}
+                      />
+                    : <span style={{ color: '#475569', fontSize: 12 }}>—</span>}
                 </td>
                 <td className="td-action">
                   {isOpen
@@ -284,6 +292,120 @@ function FaitParControl({ session, meta, onSetFaitPar, onSetNbGroupes }) {
   );
 }
 
+// Panneau de détail d'une session (composant à part entière pour héberger le
+// hook useCartes). L'état « carte faite » est mutualisé ici entre le compteur
+// d'entête, la vue Liste et la vue Groupes → les trois restent cohérents.
+function SessionDetail({ session: s, meta, isBilel, detailView, onSetDetailView, onSetFaitPar, onSetNbGroupes, isMobile, cartes }) {
+  const invitees = s.invitees || [];
+  const nbEleves = invitees.length || s.nb_invitees || 0;
+  const ca = nbEleves * PRICE;
+  const fallbackInvitees = invitees.length === 0 && s.invitee_name
+    ? [{ name: s.invitee_name, email: s.invitee_email, _fallback: true }]
+    : [];
+  const displayInvitees = invitees.length > 0 ? invitees : fallbackInvitees;
+  const nbFormRempli = invitees.filter(i => i.form_rempli).length;
+  const tauxForm = nbEleves > 0 ? Math.round((nbFormRempli / nbEleves) * 100) : 0;
+
+  // Compteur cartes : élèves actifs (non annulés) de la session avec un
+  // invitee_uuid ; « faites » = ceux dont l'état courant est true.
+  const carteEligibles = invitees.filter(i => i.invitee_uuid != null && i.status !== 'canceled');
+  const nbCarteTotal = carteEligibles.length;
+  const nbCarteFaite = carteEligibles.filter(i => cartes.faites[i.invitee_uuid]).length;
+
+  return (
+    <div className="session-detail-panel" style={{
+      marginTop: 8, borderRadius: 10,
+      ...(isBilel ? { opacity: 0.72, borderLeft: '3px solid #f59e0b' } : {}),
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
+        <span style={{ fontSize: 13, color: 'var(--accent-light)', fontWeight: 600 }}>
+          {formatDateShort(s.start_time)} — {s.event_type_name || 'Formation 125'}
+        </span>
+        {isBilel && <BilelBadge />}
+      </div>
+      <div style={{ marginBottom: 10 }}>
+        <FaitParControl
+          session={s}
+          meta={meta}
+          onSetFaitPar={onSetFaitPar}
+          onSetNbGroupes={onSetNbGroupes}
+        />
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+        <div className="session-detail-summary" style={{ flex: 1 }}>
+          <div className="session-detail-stat">
+            <Users size={14} />
+            <span>{nbEleves} élève{nbEleves > 1 ? 's' : ''}</span>
+          </div>
+          <div className="session-detail-stat">
+            <Euro size={14} />
+            <span>{ca.toLocaleString('fr-FR')} €</span>
+          </div>
+          <div className="session-detail-stat">
+            <FileCheck size={14} />
+            <span>Formulaires : {tauxForm}% ({nbFormRempli}/{nbEleves})</span>
+          </div>
+          {nbCarteTotal > 0 && (
+            <div className="session-detail-stat" title="Cartes 125 physiques déjà fabriquées">
+              <CreditCard size={14} />
+              <span style={{ color: nbCarteFaite === nbCarteTotal ? 'var(--green)' : undefined }}>
+                Cartes : {nbCarteFaite}/{nbCarteTotal} faite{nbCarteFaite > 1 ? 's' : ''}
+              </span>
+            </div>
+          )}
+        </div>
+        {displayInvitees.length > 1 && (
+          <div style={{ display: 'flex', gap: 4 }}>
+            <button
+              onClick={() => onSetDetailView('table')}
+              style={{
+                padding: '5px 12px', borderRadius: 6, border: 'none', fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                background: detailView === 'table' ? 'rgba(108,99,255,0.2)' : 'rgba(107,113,148,0.1)',
+                color: detailView === 'table' ? '#a5b4fc' : '#64748b',
+              }}
+            >
+              Liste
+            </button>
+            <button
+              onClick={() => onSetDetailView('groupes')}
+              style={{
+                padding: '5px 12px', borderRadius: 6, border: 'none', fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                display: 'flex', alignItems: 'center', gap: 4,
+                background: detailView === 'groupes' ? 'rgba(108,99,255,0.2)' : 'rgba(107,113,148,0.1)',
+                color: detailView === 'groupes' ? '#a5b4fc' : '#64748b',
+              }}
+            >
+              <UsersRound size={12} />
+              Groupes
+            </button>
+          </div>
+        )}
+      </div>
+
+      {cartes.error && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 6, marginTop: 8,
+          padding: '8px 12px', borderRadius: 6, fontSize: 12, fontWeight: 500,
+          background: 'rgba(226,75,74,0.12)', color: '#E24B4A',
+        }}>
+          <AlertTriangle size={13} />
+          {cartes.error}
+        </div>
+      )}
+
+      {displayInvitees.length > 0 ? (
+        detailView === 'groupes'
+          ? <GroupesPanel session={s} cartes={cartes} />
+          : <InviteesTable invitees={displayInvitees} isMobile={isMobile} cartes={cartes} />
+      ) : (
+        <p className="empty-state" style={{ padding: '0.75rem 0' }}>
+          Aucun élève inscrit (backfill en cours)
+        </p>
+      )}
+    </div>
+  );
+}
+
 function Agenda({ data }) {
   const { sessions, raw } = data;
   const caComparaison = raw?.ca_comparaison || [];
@@ -330,6 +452,12 @@ function Agenda({ data }) {
   }, [applyMeta]);
 
   const faitParOf = useCallback((s) => (metaMap[s.calendly_uuid]?.fait_par || 'adam'), [metaMap]);
+
+  // État « carte 125 faite » mutualisé pour toutes les inscriptions (keyé par
+  // invitee_uuid, unique). Monté au niveau Agenda pour survivre au repli/dépli
+  // d'une session et rester cohérent entre vues Liste et Groupes + compteur.
+  const allInvitees = useMemo(() => sessions.flatMap(s => s.invitees || []), [sessions]);
+  const cartes = useCartes(allInvitees);
 
   const months = useMemo(() => {
     const set = new Set();
@@ -440,92 +568,20 @@ function Agenda({ data }) {
 
   const expandedSession = expandedId ? sessions.find(s => s.id === expandedId) : null;
 
-  const renderSessionDetail = (s) => {
-    const invitees = s.invitees || [];
-    const nbEleves = invitees.length || s.nb_invitees || 0;
-    const ca = nbEleves * PRICE;
-    const fallbackInvitees = invitees.length === 0 && s.invitee_name
-      ? [{ name: s.invitee_name, email: s.invitee_email, _fallback: true }]
-      : [];
-    const displayInvitees = invitees.length > 0 ? invitees : fallbackInvitees;
-    const nbFormRempli = invitees.filter(i => i.form_rempli).length;
-    const tauxForm = nbEleves > 0 ? Math.round((nbFormRempli / nbEleves) * 100) : 0;
-    const isBilel = faitParOf(s) === 'bilel';
-
-    return (
-      <div className="session-detail-panel" style={{
-        marginTop: 8, borderRadius: 10,
-        ...(isBilel ? { opacity: 0.72, borderLeft: '3px solid #f59e0b' } : {}),
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
-          <span style={{ fontSize: 13, color: 'var(--accent-light)', fontWeight: 600 }}>
-            {formatDateShort(s.start_time)} — {s.event_type_name || 'Formation 125'}
-          </span>
-          {isBilel && <BilelBadge />}
-        </div>
-        <div style={{ marginBottom: 10 }}>
-          <FaitParControl
-            session={s}
-            meta={metaMap[s.calendly_uuid]}
-            onSetFaitPar={setFaitPar}
-            onSetNbGroupes={setNbGroupes}
-          />
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
-          <div className="session-detail-summary" style={{ flex: 1 }}>
-            <div className="session-detail-stat">
-              <Users size={14} />
-              <span>{nbEleves} élève{nbEleves > 1 ? 's' : ''}</span>
-            </div>
-            <div className="session-detail-stat">
-              <Euro size={14} />
-              <span>{ca.toLocaleString('fr-FR')} €</span>
-            </div>
-            <div className="session-detail-stat">
-              <FileCheck size={14} />
-              <span>Formulaires : {tauxForm}% ({nbFormRempli}/{nbEleves})</span>
-            </div>
-          </div>
-          {displayInvitees.length > 1 && (
-            <div style={{ display: 'flex', gap: 4 }}>
-              <button
-                onClick={() => setDetailView('table')}
-                style={{
-                  padding: '5px 12px', borderRadius: 6, border: 'none', fontSize: 11, fontWeight: 600, cursor: 'pointer',
-                  background: detailView === 'table' ? 'rgba(108,99,255,0.2)' : 'rgba(107,113,148,0.1)',
-                  color: detailView === 'table' ? '#a5b4fc' : '#64748b',
-                }}
-              >
-                Liste
-              </button>
-              <button
-                onClick={() => setDetailView('groupes')}
-                style={{
-                  padding: '5px 12px', borderRadius: 6, border: 'none', fontSize: 11, fontWeight: 600, cursor: 'pointer',
-                  display: 'flex', alignItems: 'center', gap: 4,
-                  background: detailView === 'groupes' ? 'rgba(108,99,255,0.2)' : 'rgba(107,113,148,0.1)',
-                  color: detailView === 'groupes' ? '#a5b4fc' : '#64748b',
-                }}
-              >
-                <UsersRound size={12} />
-                Groupes
-              </button>
-            </div>
-          )}
-        </div>
-
-        {displayInvitees.length > 0 ? (
-          detailView === 'groupes'
-            ? <GroupesPanel session={s} />
-            : <InviteesTable invitees={displayInvitees} isMobile={isMobile} />
-        ) : (
-          <p className="empty-state" style={{ padding: '0.75rem 0' }}>
-            Aucun élève inscrit (backfill en cours)
-          </p>
-        )}
-      </div>
-    );
-  };
+  const renderSessionDetail = (s) => (
+    <SessionDetail
+      key={`detail-${s.id}`}
+      session={s}
+      meta={metaMap[s.calendly_uuid]}
+      isBilel={faitParOf(s) === 'bilel'}
+      detailView={detailView}
+      onSetDetailView={setDetailView}
+      onSetFaitPar={setFaitPar}
+      onSetNbGroupes={setNbGroupes}
+      isMobile={isMobile}
+      cartes={cartes}
+    />
+  );
 
   const renderMobileSession = (s) => {
     const type = getSessionType(s);

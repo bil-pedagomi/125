@@ -1,8 +1,13 @@
-const API_URL = 'https://yuolnqyejxtfpxntflle.supabase.co/functions/v1/dashboard-125?key=eb498a94-3602-46a4-bce7-df288002402d';
 const SUPABASE_URL = 'https://yuolnqyejxtfpxntflle.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inl1b2xucXllanh0ZnB4bnRmbGxlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIxOTIzNzcsImV4cCI6MjA4Nzc2ODM3N30.cktsC7ly3ImeIY_2mVmxo0phSTz3obIG3UHgl_iDa7U';
 
-const FILE_PROXY_KEY = 'eb498a94-3602-46a4-bce7-df288002402d';
+// Clé unique des Edge Functions « dashboard-125 » (lecture) et « carte-125-set »
+// (écriture). Source de vérité unique : la lecture et l'écriture partagent
+// exactement la même clé — ne pas la dupliquer ailleurs sous forme de littéral.
+const DASHBOARD_KEY = 'eb498a94-3602-46a4-bce7-df288002402d';
+
+const API_URL = `${SUPABASE_URL}/functions/v1/dashboard-125?key=${DASHBOARD_KEY}`;
+const FILE_PROXY_KEY = DASHBOARD_KEY;
 
 // Wrap a raw Typeform file URL with the Supabase file-proxy so the browser
 // displays it inline (PDFs render instead of downloading). Use ONLY for the
@@ -16,6 +21,32 @@ export async function fetchDashboardData() {
   const res = await fetch(API_URL);
   if (!res.ok) throw new Error(`Erreur API: ${res.status}`);
   return res.json();
+}
+
+// Écrit l'état « carte 125 physique faite » d'une inscription via l'Edge
+// Function carte-125-set. Réutilise la même clé que la lecture dashboard-125
+// (outil interne, clé déjà exposée côté client). Le champ carte_faite_at est
+// géré automatiquement côté serveur. Lève une erreur si le backend répond avec
+// un status ≠ 200 ou renvoie un objet { error: … }, pour permettre au front de
+// revert l'état optimiste.
+export async function setCarteFaite(invitee, carteFaite) {
+  const url = `${SUPABASE_URL}/functions/v1/carte-125-set?key=${DASHBOARD_KEY}`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      invitee_uuid: invitee.invitee_uuid,
+      email: invitee.email,
+      calendly_event_uuid: invitee.calendly_event_uuid,
+      carte_faite: carteFaite,
+    }),
+  });
+  let body = null;
+  try { body = await res.json(); } catch { /* réponse sans corps JSON */ }
+  if (!res.ok || !body || body.error || body.ok === false) {
+    throw new Error(body?.error || `Erreur carte-125-set: ${res.status}`);
+  }
+  return body;
 }
 
 export async function fetchTrafficConversion(year) {

@@ -868,6 +868,52 @@ html, body, #root {
   color: var(--text-muted);
 }
 
+/* Bouton on/off « Carte 125 faite » (remplace l'ancienne colonne Montant) */
+.carte-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 9px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  font-family: inherit;
+  font-size: 0.7rem;
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.12s, opacity 0.12s, filter 0.12s;
+}
+
+.carte-btn.faite {
+  background: var(--green-bg);
+  color: var(--green);
+  border-color: rgba(16, 185, 129, 0.35);
+}
+
+.carte-btn.todo {
+  background: rgba(107, 113, 148, 0.15);
+  color: var(--text-muted);
+  border-color: rgba(107, 113, 148, 0.25);
+}
+
+.carte-btn:hover:not(:disabled) {
+  filter: brightness(1.18);
+}
+
+.carte-btn:disabled {
+  opacity: 0.55;
+  cursor: progress;
+}
+
+.carte-btn-spin {
+  animation: carte-spin 0.8s linear infinite;
+}
+
+@keyframes carte-spin {
+  to { transform: rotate(360deg); }
+}
+
 /* Fiche Eleve */
 .fiche-eleve-wrapper {
   margin-top: 0.375rem;
