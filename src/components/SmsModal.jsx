@@ -164,7 +164,14 @@ export default function SmsModal({ open, onClose, groupe, session, config, smsHi
         destinataires,
       });
       setSendResult(result);
-      if (onSmsSent) onSmsSent();
+      // Pass the send context up so the parent can optimistically mark the
+      // students as "prévenu" (details[] carries invitee_uuid + statut per SMS).
+      if (onSmsSent) onSmsSent({
+        ...result,
+        calendly_event_uuid: eventUuid,
+        groupe_numero: groupeNum,
+        heure_groupe: horaire,
+      });
     } catch (e) {
       setSendResult({ error: e.message });
     }

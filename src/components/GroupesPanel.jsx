@@ -194,6 +194,42 @@ export default function GroupesPanel({ session }) {
     }
   }, [eventUuid]);
 
+  // Called when SmsModal finishes an envoi. Optimistic UI: the edge function
+  // returns details[] with { invitee_uuid, numero, statut:'sent', message_id }.
+  // We mark those students "prévenu" IMMEDIATELY (synthetic sms_queue rows) so
+  // the badge/pastilles update without waiting, then re-fetch sms_queue to
+  // confirm/persist from the shared source of truth (which also drops the
+  // synthetic rows once the real ones arrive).
+  const handleSmsSent = useCallback((payload) => {
+    const sentDetails = (payload?.details || []).filter(d => d.statut === 'sent');
+    if (sentDetails.length) {
+      const stamp = new Date().toISOString();
+      const optimistic = sentDetails.map(d => ({
+        invitee_uuid: d.invitee_uuid ?? null,
+        telephone: d.numero,
+        calendly_event_uuid: payload.calendly_event_uuid ?? eventUuid,
+        groupe_numero: payload.groupe_numero ?? null,
+        heure_groupe: payload.heure_groupe ?? null,
+        statut: 'sent',
+        sent_at: stamp,
+        created_at: stamp,
+        ringover_message_id: d.message_id ?? null,
+        _optimistic: true,
+      }));
+      setSmsRows(prev => [...optimistic, ...prev]);
+      setSmsHistory(prev => {
+        const map = { ...prev };
+        optimistic.forEach(r => {
+          const key = toE164(r.telephone) || r.telephone;
+          map[key] = [r, ...(map[key] || [])];
+        });
+        return map;
+      });
+    }
+    // Confirm/persist from sms_queue (source of truth).
+    void refreshSmsHistory();
+  }, [eventUuid, refreshSmsHistory]);
+
   // Load existing groups from DB. If data already exists for this event,
   // display it directly (do NOT re-run the algorithm). Metadata carries the
   // editable heure/capacité and lets empty groups exist; member rows fill them.
@@ -483,6 +519,8 @@ export default function GroupesPanel({ session }) {
             const notif = g.membres.map(m => memberNotifStatus(m, g.heure, smsRows));
             const nbPrevenu = notif.filter(s => s === 'prevenu').length;
             const nbRePrevenir = notif.filter(s => s === 're-prevenir').length;
+            // Anti-doublon : tout le groupe est déjà prévenu pour l'horaire actuel.
+            const allPrevenu = !empty && nbPrevenu === g.membres.length;
             return (
               <div key={g.numero} className="groupe-col">
                 <div className="groupe-header">
@@ -531,13 +569,25 @@ export default function GroupesPanel({ session }) {
                       />
                     </label>
                     <button
-                      onClick={() => openSmsModal(gIdx)}
+                      onClick={() => {
+                        // Anti-doublon explicite : tous déjà prévenus → on demande
+                        // confirmation avant de rouvrir la modale d'envoi.
+                        if (allPrevenu && !window.confirm(
+                          `Tous les élèves du Groupe ${g.numero} ont déjà reçu leur SMS pour ${formatHeureSms(g.heure)}. Renvoyer quand même ?`
+                        )) return;
+                        openSmsModal(gIdx);
+                      }}
                       className="groupe-btn-sm"
                       disabled={!config || empty}
-                      style={{ background: 'rgba(108,99,255,0.15)', color: '#a5b4fc' }}
-                      title="Envoyer les SMS à tout le groupe"
+                      style={{
+                        background: allPrevenu ? 'rgba(16,185,129,0.15)' : 'rgba(108,99,255,0.15)',
+                        color: allPrevenu ? '#10b981' : '#a5b4fc',
+                      }}
+                      title={allPrevenu
+                        ? 'Tous les élèves sont déjà prévenus — cliquez pour renvoyer'
+                        : 'Envoyer les SMS à tout le groupe'}
                     >
-                      <Send size={10} /> SMS
+                      {allPrevenu ? <CheckCircle size={10} /> : <Send size={10} />} SMS
                     </button>
                   </div>
                   {over ? (
@@ -609,7 +659,7 @@ export default function GroupesPanel({ session }) {
         session={session}
         config={config}
         smsHistory={smsHistory}
-        onSmsSent={refreshSmsHistory}
+        onSmsSent={handleSmsSent}
       />
 
       {groupes && <SmsHistorique eventUuid={eventUuid} />}
