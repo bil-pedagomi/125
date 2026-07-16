@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { RefreshCw, Check, AlertTriangle, Pencil, MessageSquare, Send, CheckCircle, Plus, Trash2 } from 'lucide-react';
 import Avatar from './Avatar';
 import SmsModal from './SmsModal';
@@ -383,6 +383,21 @@ export default function GroupesPanel({ session }) {
     setGroupes(result);
     void persistGroupes(result);
   }, [groupes, manquants, algoDefaults, persistGroupes]);
+
+  // Auto-repair, once per session view: if the saved groups are missing students
+  // who enrolled after the groups were built, fold them in and persist — without
+  // waiting for a manual click. There is no way in the UI to intentionally leave
+  // an active student out of every group, so an unassigned invitee is always
+  // stale data to fix. We wait for `config` so new groups get the real
+  // capacity/hours, and guard with a ref so it runs a single time.
+  const autoFixedRef = useRef(false);
+  useEffect(() => {
+    if (autoFixedRef.current) return;
+    if (!groupes || !config) return;
+    if (manquants.length === 0) return;
+    autoFixedRef.current = true;
+    ajouterManquants();
+  }, [groupes, config, manquants, ajouterManquants]);
 
   const sauvegarder = useCallback(() => {
     if (groupes) void persistGroupes(groupes);
