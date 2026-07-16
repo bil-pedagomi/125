@@ -3,7 +3,7 @@ import { RefreshCw, Check, AlertTriangle, Pencil, MessageSquare, Send, CheckCirc
 import Avatar from './Avatar';
 import SmsModal from './SmsModal';
 import SmsHistorique from './SmsHistorique';
-import { getNiveauStyle, getNiveauLabel, repartirGroupes, fetchGroupes, fetchGroupesMeta, saveGroupes, heureForGroupe, MAX_PAR_GROUPE, MAX_SCOOTERS, computeSatisfaction, fetchConfig, toE164, fetchSMSHistory, formatName, formatHeureSms } from '../utils';
+import { getNiveauStyle, getNiveauLabel, getNiveauScore, repartirGroupes, fetchGroupes, fetchGroupesMeta, saveGroupes, heureForGroupe, MAX_PAR_GROUPE, MAX_SCOOTERS, computeSatisfaction, fetchConfig, toE164, fetchSMSHistory, formatName, formatHeureSms } from '../utils';
 import useIsMobile from '../hooks/useIsMobile';
 
 const CRENEAU_DOT = {
@@ -80,6 +80,13 @@ function memberNotifStatus(membre, currentHeure, smsRows) {
 
 // Sort groups by start time (ascending) and renumber 1..k. Chronological
 // order drives everything: earliest group = Groupe 1. Pure helper.
+// Stable identity of a student, used to tell whether an invitee already sits in
+// a group. invitee_uuid is the reliable key; id/email are fallbacks (mirrors how
+// members are keyed for SMS matching and persistence).
+function inviteeKey(m) {
+  return String(m?.invitee_uuid ?? m?.id ?? m?.email ?? '').trim().toLowerCase();
+}
+
 function sortAndRenumber(groupes) {
   return [...groupes]
     .sort((a, b) => String(a.heure || '').localeCompare(String(b.heure || '')))
@@ -326,6 +333,57 @@ export default function GroupesPanel({ session }) {
     void persistGroupes(result);
   }, [invitees, algoDefaults, groupes, persistGroupes]);
 
+  // Active invitees that sit in NO group. This happens when students register
+  // (or reschedule in) AFTER the groups were built and saved: the stored groups
+  // reflect the roster at generation time, not the current one. Without this the
+  // panel silently shows fewer students than are actually enrolled.
+  const manquants = useMemo(() => {
+    if (!groupes) return [];
+    const placed = new Set();
+    groupes.forEach(g => g.membres.forEach(m => placed.add(inviteeKey(m))));
+    return invitees.filter(inv => !placed.has(inviteeKey(inv)));
+  }, [groupes, invitees]);
+
+  // Add the missing students to the existing groups WITHOUT recomputing the whole
+  // split (so manual edits — moves, role overrides, custom hours — are preserved).
+  // Each student lands in the first group with spare capacity, or a fresh group if
+  // all are full, and gets a scooter only if the group still has a free scooter
+  // slot and their level allows it (same rule as the auto split).
+  const ajouterManquants = useCallback(() => {
+    if (!groupes || manquants.length === 0) return;
+    const maxParGroupe = algoDefaults.maxParGroupe;
+    const maxScooters = algoDefaults.maxScooters;
+    const next = groupes.map(g => ({ ...g, membres: [...g.membres] }));
+
+    // Strongest riders first so the scarce scooter seats go to those who qualify.
+    const toAdd = [...manquants].sort((a, b) => getNiveauScore(b) - getNiveauScore(a));
+    toAdd.forEach(inv => {
+      let target = next.find(g => g.membres.length < (g.capacite ?? MAX_PAR_GROUPE));
+      if (!target) {
+        target = {
+          numero: next.length + 1, // provisional — sortAndRenumber reassigns by hour
+          heure: heureForGroupe(next.length, algoDefaults.heuresDefaut),
+          capacite: maxParGroupe,
+          membres: [],
+        };
+        next.push(target);
+      }
+      const scooterCount = target.membres.filter(m => m.role === 'scooter').length;
+      const eligible = !isIneligibleScooter(inv);
+      target.membres.push({
+        ...inv,
+        role: eligible && scooterCount < maxScooters ? 'scooter' : 'voiture',
+        modifie_manuellement: false,
+        ordre_passage: null,
+        note: '',
+      });
+    });
+
+    const result = sortAndRenumber(next);
+    setGroupes(result);
+    void persistGroupes(result);
+  }, [groupes, manquants, algoDefaults, persistGroupes]);
+
   const sauvegarder = useCallback(() => {
     if (groupes) void persistGroupes(groupes);
   }, [groupes, persistGroupes]);
@@ -475,7 +533,30 @@ export default function GroupesPanel({ session }) {
           {err.msg}
         </div>
       ))}
-      {allValid && groupes && (
+      {groupes && manquants.length > 0 && (
+        <div
+          className="groupes-alert warn"
+          style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}
+        >
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <AlertTriangle size={13} />
+            {manquants.length} élève{manquants.length > 1 ? 's' : ''} inscrit{manquants.length > 1 ? 's' : ''} hors groupe : {manquants.map(m => formatName(m.name) || m.email).join(', ')}
+          </span>
+          <button
+            onClick={ajouterManquants}
+            disabled={saving}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px',
+              borderRadius: 6, border: 'none', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+              background: 'rgba(245,158,11,0.2)', color: '#f59e0b', whiteSpace: 'nowrap',
+            }}
+          >
+            <Plus size={13} />
+            Ajouter au{manquants.length > 1 ? 'x' : ''} groupe{manquants.length > 1 ? 's' : ''}
+          </button>
+        </div>
+      )}
+      {allValid && groupes && manquants.length === 0 && (
         <div className="groupes-alert success">
           <Check size={13} />
           Tous les groupes sont valides
