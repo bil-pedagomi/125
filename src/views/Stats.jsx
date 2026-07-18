@@ -3,7 +3,7 @@ import {
   PieChart, Pie, Cell, BarChart, Bar, LineChart, Line,
   XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, CartesianGrid,
 } from 'recharts';
-import { Users, UsersRound, Euro, FileCheck, Phone, PhoneCall, Mail, MessageSquare, Calendar, TrendingUp, Eye, Target } from 'lucide-react';
+import { Users, UsersRound, Euro, FileCheck, Phone, PhoneCall, Mail, MessageSquare, Calendar, TrendingUp, Eye, Target, Clock } from 'lucide-react';
 import { getMonthKey, getMonthLabel, fetchTrafficConversion } from '../utils';
 
 const PRICE = 199;
@@ -24,6 +24,13 @@ const NIVEAU_COLORS = {
 };
 
 const CONDUIT_COLORS = { 'Oui': '#10b981', 'Non': '#ef4444' };
+
+// ─── Habitudes de réservation (date à laquelle l'élève a réservé, en heure de
+// Paris — à ne pas confondre avec la date de sa formation) ───
+const PARIS_DOW = new Intl.DateTimeFormat('en-US', { weekday: 'short', timeZone: 'Europe/Paris' });
+const PARIS_HOUR = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', hour12: false, timeZone: 'Europe/Paris' });
+const DOW_INDEX = { Mon: 0, Tue: 1, Wed: 2, Thu: 3, Fri: 4, Sat: 5, Sun: 6 };
+const DOW_LABELS = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
 
 const OCCASION_COLORS = {
   'Domicile-travail': '#3b82f6',
@@ -320,6 +327,50 @@ function Stats({ data }) {
       .sort((a, b) => b[1] - a[1])
       .map(([motif, count]) => ({ motif, count }));
   }, [filteredSessions, globalMotifs]);
+
+  // ─── Habitudes de réservation ───
+  // On se base sur la date de RÉSERVATION (calendly_created_at), filtrée sur la
+  // période sélectionnée — indépendamment de la date de formation.
+  const reservationEleves = useMemo(() => {
+    const all = data.eleves || [];
+    const withDate = all.filter(e => e.calendly_created_at);
+    if (periodMonths.length === 0) return withDate;
+    const set = new Set(periodMonths);
+    return withDate.filter(e => {
+      const mk = getMonthKey(e.calendly_created_at);
+      return mk && set.has(mk);
+    });
+  }, [data.eleves, periodMonths]);
+
+  const reservationsWeekday = useMemo(() => {
+    const counts = [0, 0, 0, 0, 0, 0, 0];
+    reservationEleves.forEach(e => {
+      const d = new Date(e.calendly_created_at);
+      if (isNaN(d)) return;
+      const idx = DOW_INDEX[PARIS_DOW.format(d)];
+      if (idx != null) counts[idx]++;
+    });
+    return DOW_LABELS.map((name, i) => ({ name, value: counts[i] }));
+  }, [reservationEleves]);
+
+  const reservationsHour = useMemo(() => {
+    const counts = new Array(24).fill(0);
+    reservationEleves.forEach(e => {
+      const d = new Date(e.calendly_created_at);
+      if (isNaN(d)) return;
+      const h = parseInt(PARIS_HOUR.format(d), 10) % 24;
+      if (!isNaN(h)) counts[h]++;
+    });
+    return counts.map((value, h) => ({ name: `${h}h`, value }));
+  }, [reservationEleves]);
+
+  const reservationInsight = useMemo(() => {
+    const total = reservationEleves.length;
+    if (total === 0) return null;
+    const topDay = [...reservationsWeekday].sort((a, b) => b.value - a.value)[0];
+    const topHour = reservationsHour.reduce((best, cur) => (cur.value > best.value ? cur : best), reservationsHour[0]);
+    return { total, topDay, topHour };
+  }, [reservationEleves, reservationsWeekday, reservationsHour]);
 
   const yearStr = periode !== 'custom' ? periode : '';
   const yearN1Str = periode !== 'custom' ? String(parseInt(periode) - 1) : '';
@@ -676,6 +727,62 @@ function Stats({ data }) {
             </ul>
           ) : (
             <p className="empty-state">Aucun motif d'appel enregistré</p>
+          )}
+        </div>
+      </div>
+
+      {/* ═══ HABITUDES DE RÉSERVATION ═══ */}
+      <div style={{ color: 'var(--text-muted)', fontSize: 12, margin: '24px 0 12px' }}>
+        Habitudes de réservation — jour &amp; heure où l'élève a réservé (pas la date de formation)
+        {reservationInsight && (
+          <span style={{ color: 'var(--accent)', marginLeft: 8 }}>
+            · {reservationInsight.total} réservation{reservationInsight.total > 1 ? 's' : ''}
+            {reservationInsight.topDay?.value > 0 && ` · pic le ${reservationInsight.topDay.name}`}
+            {reservationInsight.topHour?.value > 0 && ` · vers ${reservationInsight.topHour.name}`}
+          </span>
+        )}
+      </div>
+
+      <div className="dashboard-grid">
+        <div className="card">
+          <div className="card-title"><Calendar size={16} /> Réservations par jour de la semaine</div>
+          {reservationInsight ? (
+            <ResponsiveContainer width="100%" height={260}>
+              <BarChart data={reservationsWeekday} margin={{ top: 5, right: 10, left: -10, bottom: 5 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#2a2f45" />
+                <XAxis dataKey="name" tick={{ fill: '#9aa0b8', fontSize: 11 }} />
+                <YAxis tick={{ fill: '#9aa0b8', fontSize: 11 }} allowDecimals={false} />
+                <Tooltip
+                  contentStyle={{ background: '#1e2235', border: '1px solid #2a2f45', borderRadius: 8, fontSize: 13 }}
+                  labelStyle={{ color: '#e8eaed' }}
+                  formatter={(value) => [value, 'Réservations']}
+                />
+                <Bar dataKey="value" fill="#8b5cf6" radius={[4, 4, 0, 0]} name="Réservations" />
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <p className="empty-state">Aucune donnée de réservation</p>
+          )}
+        </div>
+
+        <div className="card">
+          <div className="card-title"><Clock size={16} /> Réservations par heure</div>
+          {reservationInsight ? (
+            <ResponsiveContainer width="100%" height={260}>
+              <BarChart data={reservationsHour} margin={{ top: 5, right: 10, left: -10, bottom: 5 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#2a2f45" />
+                <XAxis dataKey="name" tick={{ fill: '#9aa0b8', fontSize: 10 }} interval={1} />
+                <YAxis tick={{ fill: '#9aa0b8', fontSize: 11 }} allowDecimals={false} />
+                <Tooltip
+                  contentStyle={{ background: '#1e2235', border: '1px solid #2a2f45', borderRadius: 8, fontSize: 13 }}
+                  labelStyle={{ color: '#e8eaed' }}
+                  formatter={(value) => [value, 'Réservations']}
+                />
+                <Bar dataKey="value" fill="#6c63ff" radius={[4, 4, 0, 0]} name="Réservations" />
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <p className="empty-state">Aucune donnée de réservation</p>
           )}
         </div>
       </div>
