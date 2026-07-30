@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import { CalendarDays, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, FileCheck, PhoneCall, Users, Euro, UsersRound, UserCog } from 'lucide-react';
-import { formatDateShort, formatDate, getMonthKey, getMonthLabel, getSessionType, getGroupeType125, getNiveauStyle, formatName, fetchSessionsMeta, upsertSessionMeta } from '../utils';
+import { formatDateShort, getMonthKey, getMonthLabel, getSessionType, getGroupeType125, getNiveauStyle, formatName, fetchSessionsMeta, upsertSessionMeta, buildAmisClusters, getTrajetInfo, inviteeKey } from '../utils';
 import FicheEleve from '../components/FicheEleve';
 import GroupesPanel from '../components/GroupesPanel';
 import Avatar from '../components/Avatar';
@@ -40,17 +40,20 @@ const TABLE_CSS = `
 .inv-table .td-action svg { transition: transform 0.2s; }
 .inv-table tbody tr:hover .td-action svg { color: var(--accent); }
 @media (max-width: 768px) {
-  .inv-table .col-contact, .inv-table .col-montant { display: none; }
+  .inv-table .col-contact, .inv-table .col-montant, .inv-table .col-groupage { display: none; }
   .inv-table thead th { padding: 8px 8px; font-size: 10px; }
   .inv-table tbody td { padding: 8px 8px; font-size: 12px; }
   .inv-table .td-eleve-name { max-width: 100px; }
 }
 `;
 
-function InviteesTable({ invitees, isMobile }) {
+function InviteesTable({ invitees }) {
   const [sortKey, setSortKey] = useState('niveau');
   const [sortDir, setSortDir] = useState('asc');
   const [ficheId, setFicheId] = useState(null);
+
+  // Grappes d'amis de la session, déduites des noms cités dans le formulaire.
+  const amis = useMemo(() => buildAmisClusters(invitees), [invitees]);
 
   const handleSort = useCallback((key) => {
     if (sortKey === key) {
@@ -86,6 +89,13 @@ function InviteesTable({ invitees, isMobile }) {
         case 'appels': {
           return ((a.nb_appels || 0) - (b.nb_appels || 0)) * dir;
         }
+        case 'trajet': {
+          // Trajet inconnu en dernier, quel que soit le sens du tri.
+          const ta = getTrajetInfo(a).score;
+          const tb = getTrajetInfo(b).score;
+          if (ta == null || tb == null) return (ta == null ? 1 : 0) - (tb == null ? 1 : 0);
+          return (ta - tb) * dir;
+        }
         default: return 0;
       }
     });
@@ -112,6 +122,7 @@ function InviteesTable({ invitees, isMobile }) {
             <th onClick={() => handleSort('nom')}>Élève{arrow('nom')}</th>
             <th onClick={() => handleSort('niveau')}>Niveau{arrow('niveau')}</th>
             <th className="col-contact" onClick={() => handleSort('nom')}>Contact</th>
+            <th className="col-groupage" onClick={() => handleSort('trajet')}>Trajet / Amis{arrow('trajet')}</th>
             <th onClick={() => handleSort('formulaire')}>Formulaire{arrow('formulaire')}</th>
             <th onClick={() => handleSort('appels')}>Appels{arrow('appels')}</th>
             <th className="col-montant">Montant</th>
@@ -152,6 +163,41 @@ function InviteesTable({ invitees, isMobile }) {
                     {inv.phone && <PhoneLink phone={inv.phone} />}
                   </div>
                 </td>
+                {/* Les deux critères de groupage venus du formulaire : temps de
+                    trajet (loin → plutôt le matin) et amis à garder ensemble. */}
+                <td className="col-groupage">
+                  {(() => {
+                    const trajet = getTrajetInfo(inv);
+                    const cluster = amis.byKey[inviteeKey(inv)];
+                    const autres = cluster
+                      ? cluster.membres.filter(x => x.key !== inviteeKey(inv)).map(x => formatName(x.name))
+                      : (amis.nonInscrits[inviteeKey(inv)] || []).map(n => `${n} (non inscrit)`);
+                    if (!trajet.short && autres.length === 0) return <span style={{ color: '#475569' }}>—</span>;
+                    return (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                        {trajet.short && (
+                          <span
+                            title={`Temps de trajet domicile → auto-école : ${trajet.label}`}
+                            style={{ fontSize: 11, color: trajet.loin ? '#f59e0b' : '#94a3b8', whiteSpace: 'nowrap' }}
+                          >
+                            📍 {trajet.short}
+                          </span>
+                        )}
+                        {autres.length > 0 && (
+                          <span
+                            title={`Vient avec ${autres.join(', ')}`}
+                            style={{
+                              fontSize: 11, color: cluster ? cluster.color : '#64748b',
+                              maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                            }}
+                          >
+                            👥 {autres.join(', ')}
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })()}
+                </td>
                 <td>
                   {inv.form_rempli
                     ? <span className="invitee-badge green">OK</span>
@@ -173,7 +219,7 @@ function InviteesTable({ invitees, isMobile }) {
               </tr>,
               isOpen && (
                 <tr key={`${id}-fiche`} className="inv-fiche-row">
-                  <td colSpan={7}>
+                  <td colSpan={8}>
                     <FicheEleve invitee={inv} defaultOpen={true} />
                   </td>
                 </tr>
@@ -517,7 +563,7 @@ function Agenda({ data }) {
         {displayInvitees.length > 0 ? (
           detailView === 'groupes'
             ? <GroupesPanel session={s} />
-            : <InviteesTable invitees={displayInvitees} isMobile={isMobile} />
+            : <InviteesTable invitees={displayInvitees} />
         ) : (
           <p className="empty-state" style={{ padding: '0.75rem 0' }}>
             Aucun élève inscrit (backfill en cours)

@@ -173,6 +173,22 @@ export const MAX_PAR_GROUPE = 6;
 export const MAX_SCOOTERS = 3;
 export const MAX_VOITURE = 3;
 
+// Identité stable d'un élève, utilisée partout où il faut savoir si deux objets
+// désignent la même personne (appartenance à un groupe, grappes d'amis,
+// persistance, rapprochement SMS). invitee_uuid est la clé fiable ; id/email
+// servent de repli.
+export function inviteeKey(m) {
+  return String(m?.invitee_uuid ?? m?.id ?? m?.email ?? '').trim().toLowerCase();
+}
+
+// Niveaux qui ne justifient pas un scooter par eux-mêmes : l'algo AUTO ne met
+// jamais ces élèves sur un PCX (un humain peut toujours forcer à la main).
+export const NIVEAUX_SANS_SCOOTER = ['Jamais conduit', 'Formulaire manquant', 'Non renseigné'];
+
+export function peutPiloterScooter(inv) {
+  return !NIVEAUX_SANS_SCOOTER.includes(getNiveauLabel(inv));
+}
+
 // Default start time for group `idx` (0-based). Uses the configured/fallback
 // list, then derives "last known hour + 1h per extra group" — never the old
 // `10 + idx*4` formula that produced 22:00 / 02:00 beyond 3 groups. Clamped
@@ -194,6 +210,168 @@ export function getNiveauScore(inv) {
   return SCORE_NIVEAU[getNiveauLabel(inv)] ?? 0;
 }
 
+// --- Temps de trajet domicile → auto-école (question Typeform) ---
+// Score croissant = vient de plus en plus loin. Critère SOUPLE de répartition :
+// plus un élève vient de loin, plus on privilégie le groupe du matin — sinon il
+// termine tard ET enchaîne 2 h de route. Les libellés sont ceux du Typeform ;
+// l'ordre des règles va du plus lointain au plus proche (le plus spécifique
+// d'abord, « autre département » contenant déjà une durée).
+const TRAJET_NIVEAUX = [
+  { re: /autre d[ée]partement|\+\s*4\s*h|plus de 4\s*h/i, label: 'Autre département (+4h)', short: '+4h', score: 4 },
+  { re: /plus de 2\s*h|\+\s*2\s*h|>\s*2\s*h/i, label: 'Plus de 2h', short: '>2h', score: 3 },
+  { re: /1\s*h\s*(?:à|a|-|–|et)\s*2\s*h/i, label: '1h à 2h', short: '1–2h', score: 2 },
+  { re: /30\s*(?:min)?\s*(?:à|a|-|–|et)\s*1\s*h/i, label: '30 min à 1h', short: '30–60 min', score: 1 },
+  { re: /moins de 30|<\s*30/i, label: 'Moins de 30 min', short: '<30 min', score: 0 },
+];
+
+// À partir de ce score, on considère que l'élève « vient de loin » et qu'un
+// horaire du matin est préférable (≥ 1 h de trajet).
+export const TRAJET_LOIN_SCORE_MIN = 2;
+
+// Renvoie toujours un objet : { raw, label, short, score, loin }. score === null
+// = information absente (formulaire non rempli / question sans réponse) : on ne
+// pénalise jamais l'élève dans ce cas, on ne l'avantage pas non plus.
+export function getTrajetInfo(inv) {
+  const raw = (inv?.temps_trajet || '').trim();
+  if (!raw) return { raw: null, label: null, short: null, score: null, loin: false };
+  const hit = TRAJET_NIVEAUX.find(t => t.re.test(raw));
+  // Libellé inconnu (réponse Typeform modifiée) : on l'affiche tel quel plutôt
+  // que de le masquer, mais il ne pèse pas dans la répartition.
+  if (!hit) return { raw, label: raw, short: raw, score: null, loin: false };
+  return { raw, label: hit.label, short: hit.short, score: hit.score, loin: hit.score >= TRAJET_LOIN_SCORE_MIN };
+}
+
+export function getTrajetScore(inv) {
+  const s = getTrajetInfo(inv).score;
+  return s == null ? 0 : s; // inconnu = neutre
+}
+
+// --- Amis / accompagnants (question Typeform) ---
+// Le formulaire demande « venez-vous avec un proche ? » puis son nom complet en
+// TEXTE LIBRE : « Rachid LADIB », « Rachid LADIB et Muhammed ALTUNDAG »,
+// « Pol edouard pelé » (ordre prénom/nom variable, accents et casse
+// aléatoires). On rapproche ces noms des inscrits de la session pour former des
+// grappes d'amis, à garder ensemble dans le même groupe si possible.
+
+// Mots à ignorer dans un nom : liaisons et liens de parenté que les élèves
+// ajoutent parfois (« mon frère Adem »).
+const NAME_STOP_TOKENS = new Set([
+  'de', 'du', 'des', 'le', 'la', 'les', 'et', 'ou', 'avec', 'mon', 'ma', 'mes',
+  'ami', 'amie', 'amis', 'amies', 'copain', 'copine', 'frere', 'soeur', 'cousin',
+  'cousine', 'conjoint', 'conjointe', 'mari', 'femme', 'fils', 'fille', 'pere',
+  'mere', 'oncle', 'tante', 'neveu', 'niece', 'collegue', 'voisin', 'voisine',
+]);
+
+// Tokens comparables d'un nom : sans accents, minuscules, ponctuation et
+// tirets convertis en séparateurs (« Jean-Chiraze » → jean, chiraze).
+export function nameTokens(name) {
+  return String(name || '')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .split(' ')
+    .filter(t => t.length > 1 && !NAME_STOP_TOKENS.has(t));
+}
+
+// Un champ « accompagnant » peut citer plusieurs personnes.
+function splitAccompagnants(raw) {
+  return String(raw || '')
+    .split(/\s+et\s+|\s*[,&+/;]\s*/i)
+    .map(s => s.trim())
+    .filter(Boolean);
+}
+
+// Rapproche un nom libre de la liste des inscrits. On exige 2 tokens communs
+// (prénom + nom) ; avec un seul token on n'accepte que s'il ne désigne qu'une
+// personne de la session. En cas d'ambiguïté on ne lie RIEN : un faux
+// rapprochement déplacerait un élève sans raison.
+function matchRoster(raw, roster) {
+  const tokens = nameTokens(raw);
+  if (tokens.length === 0) return null;
+  const scored = roster.map(r => ({
+    r,
+    common: (() => {
+      const rt = nameTokens(r.name);
+      return tokens.filter(t => rt.includes(t)).length;
+    })(),
+  }));
+  const best = scored.reduce((max, s) => Math.max(max, s.common), 0);
+  if (best === 0) return null;
+  const winners = scored.filter(s => s.common === best);
+  if (winners.length > 1) return null; // ex æquo → on ne devine pas
+  return winners[0].r;
+}
+
+const AMI_LABELS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+const AMI_COLORS = ['#a855f7', '#14b8a6', '#f59e0b', '#38bdf8', '#f472b6', '#84cc16'];
+
+// Construit les grappes d'amis d'une session (union-find sur les déclarations).
+// Une déclaration unilatérale suffit à lier deux élèves : si A dit venir avec B,
+// ils sont amis même si B n'a rien déclaré.
+// Retour :
+//   byKey      : inviteeKey → { id, label, color, membres:[{key,name}] }
+//                (uniquement les grappes de 2 élèves ou plus)
+//   clusters   : liste des grappes (même contenu, pour les récaps)
+//   nonInscrits: inviteeKey → noms déclarés introuvables dans la session
+export function buildAmisClusters(invitees) {
+  const roster = (invitees || []).filter(inv => inviteeKey(inv));
+  const idxByKey = new Map();
+  roster.forEach((inv, i) => { if (!idxByKey.has(inviteeKey(inv))) idxByKey.set(inviteeKey(inv), i); });
+
+  const parent = roster.map((_, i) => i);
+  const find = (i) => { let r = i; while (parent[r] !== r) r = parent[r]; while (parent[i] !== r) { const n = parent[i]; parent[i] = r; i = n; } return r; };
+  const union = (a, b) => { const ra = find(a), rb = find(b); if (ra !== rb) parent[Math.max(ra, rb)] = Math.min(ra, rb); };
+
+  const nonInscrits = {};
+  roster.forEach((inv, i) => {
+    if (!inv.accompagnant_nom_complet) return;
+    splitAccompagnants(inv.accompagnant_nom_complet).forEach(nom => {
+      const others = roster.filter((_, j) => j !== i);
+      const found = matchRoster(nom, others);
+      if (found) {
+        union(i, idxByKey.get(inviteeKey(found)));
+      } else {
+        const k = inviteeKey(inv);
+        if (!nonInscrits[k]) nonInscrits[k] = [];
+        nonInscrits[k].push(nom);
+      }
+    });
+  });
+
+  const parRacine = new Map();
+  roster.forEach((inv, i) => {
+    const r = find(i);
+    if (!parRacine.has(r)) parRacine.set(r, []);
+    parRacine.get(r).push(inv);
+  });
+
+  const clusters = [];
+  const byKey = {};
+  [...parRacine.values()]
+    .filter(membres => membres.length > 1)
+    .forEach((membres, n) => {
+      const cluster = {
+        id: n + 1,
+        label: AMI_LABELS[n % AMI_LABELS.length],
+        color: AMI_COLORS[n % AMI_COLORS.length],
+        membres: membres.map(m => ({ key: inviteeKey(m), name: m.name || m.email })),
+      };
+      clusters.push(cluster);
+      cluster.membres.forEach(m => { byKey[m.key] = cluster; });
+    });
+
+  return { byKey, clusters, nonInscrits };
+}
+
+// Un groupe est « du matin » si son heure de début est avant midi. On se base
+// sur l'heure RÉELLE (éditable) et jamais sur le numéro du groupe : avec 3
+// groupes, les groupes 2 et 3 sont tous les deux l'après-midi.
+export function isGroupeMatin(g) {
+  const h = parseInt(String(g?.heure || '').slice(0, 2), 10);
+  return Number.isFinite(h) ? h < 12 : false;
+}
+
 export function getPrefScore(val) {
   if (!val) return 1; // indifferent
   const s = val.toLowerCase();
@@ -211,6 +389,15 @@ export function getPrefScore(val) {
 // opts = { maxParGroupe, maxScooters, heuresDefaut }. Constants are fallbacks
 // only. The result is a *proposal* — heure, capacite and group count are all
 // editable afterwards in the UI and persisted independently.
+//
+// CRITÈRES, du plus fort au plus souple (aucun n'est une obligation dure) :
+//   1. Créneau demandé dans le formulaire      — on ne contredit jamais un
+//                                                « je veux l'après-midi »
+//   2. Temps de trajet : loin → plutôt le matin (finir tôt quand on a 2 h de
+//                                                route au retour)
+//   3. Amis déclarés   : ensemble dans le même groupe
+//   4. Niveaux         : équilibrés entre groupes, et assez de pilotes par
+//                        groupe pour ne pas laisser un PCX au garage
 export function repartirGroupes(invitees, opts = {}) {
   const maxParGroupe = opts.maxParGroupe ?? MAX_PAR_GROUPE;
   const maxScooters = opts.maxScooters ?? MAX_SCOOTERS;
@@ -225,12 +412,8 @@ export function repartirGroupes(invitees, opts = {}) {
     const sortedM = [...membres].sort((a, b) => getNiveauScore(b) - getNiveauScore(a));
     let scooterCount = 0;
     return sortedM.map((inv) => {
-      const label = getNiveauLabel(inv);
-      const peutScooter = label !== 'Jamais conduit'
-        && label !== 'Formulaire manquant'
-        && label !== 'Non renseigné';
       let role;
-      if (peutScooter && scooterCount < maxScooters) {
+      if (peutPiloterScooter(inv) && scooterCount < maxScooters) {
         role = 'scooter';
         scooterCount++;
       } else {
@@ -252,56 +435,160 @@ export function repartirGroupes(invitees, opts = {}) {
 
   // Default number of groups = what it takes to seat everyone at capacity.
   const nbGroupes = Math.ceil(nbEleves / maxParGroupe);
+  const amis = buildAmisClusters(invitees);
 
-  // PHASE 1 — Sort by preference DESC (tôt matin > matin > indifferent > aprem),
-  //           then by niveau DESC as tiebreaker
-  const sorted = [...invitees].sort((a, b) => {
-    const prefDiff = getPrefScore(b.creneau_prefere) - getPrefScore(a.creneau_prefere);
-    if (prefDiff !== 0) return prefDiff;
-    return getNiveauScore(b) - getNiveauScore(a);
+  // PHASE 1 — Priorité « matin » de chaque élève. La préférence explicite pèse
+  // dix fois plus que le trajet : le trajet n'est qu'un arbitrage entre élèves
+  // à préférence égale. Et il est neutralisé pour qui a demandé l'après-midi —
+  // venir de loin ne doit jamais retourner une demande explicite. Le niveau ne
+  // sert que de départage à égalité parfaite.
+  const scoreMatin = (inv) => {
+    const pref = getPrefScore(inv.creneau_prefere);
+    const trajet = pref === 0 ? 0 : getTrajetScore(inv);
+    return pref * 10 + trajet * 2 + getNiveauScore(inv) * 0.1;
+  };
+
+  // PHASE 2 — Unités indivisibles : une grappe d'amis se déplace en bloc. Sauf
+  // si ses membres ont des créneaux opposés (l'un veut le matin, l'autre
+  // l'après-midi) : la demande explicite passe alors devant l'amitié. Une
+  // grappe plus grande qu'un groupe ne peut évidemment pas rester entière.
+  const parKey = new Map(invitees.map(inv => [inviteeKey(inv), inv]));
+  const dejaPlace = new Set();
+  const unites = [];
+  invitees.forEach(inv => {
+    const key = inviteeKey(inv);
+    if (dejaPlace.has(key)) return;
+    const cluster = amis.byKey[key];
+    let membres = [inv];
+    if (cluster) {
+      const grappe = cluster.membres.map(x => parKey.get(x.key)).filter(Boolean);
+      const prefs = grappe.map(m => getPrefScore(m.creneau_prefere));
+      const conflit = prefs.some(p => p === 0) && prefs.some(p => p >= 2);
+      if (!conflit && grappe.length <= maxParGroupe) membres = grappe;
+    }
+    membres.forEach(m => dejaPlace.add(inviteeKey(m)));
+    unites.push({
+      membres,
+      // Moyenne : une paire mi-matin / mi-indifférente ne double pas la file
+      // devant un élève seul qui a explicitement demandé le matin.
+      score: membres.reduce((s, m) => s + scoreMatin(m), 0) / membres.length,
+    });
   });
 
-  // PHASE 2 — Slice into groups: morning gets the first `tailleMatin` students
-  //           (those with strongest morning preference), rest fills afternoon
-  //           groups to capacity. Morning group size = remainder to preserve buffer.
-  const tailleMatin = nbEleves - (nbGroupes - 1) * maxParGroupe;
-  const buckets = [sorted.slice(0, tailleMatin)];
-  for (let i = 1; i < nbGroupes; i++) {
-    const start = tailleMatin + (i - 1) * maxParGroupe;
-    buckets.push(sorted.slice(start, start + maxParGroupe));
-  }
-
-  // PHASE 3 — Light level homogenization (2-group case only): if niveau
-  //           imbalance > 2 points, swap indifferents between groups to
-  //           rebalance without breaking any clear preference.
-  if (nbGroupes === 2 && buckets[0].length > 0 && buckets[1].length > 0) {
-    const avg = (b) => b.reduce((s, x) => s + getNiveauScore(x), 0) / b.length;
-    for (let iter = 0; iter < 5; iter++) {
-      const diff = avg(buckets[0]) - avg(buckets[1]);
-      if (Math.abs(diff) <= 2) break;
-      const high = diff > 0 ? 0 : 1;
-      const low = 1 - high;
-      // Pick the highest-score indifferent in the overweighted group
-      const highIdx = buckets[high]
-        .map((m, i) => ({ m, i, score: getNiveauScore(m) }))
-        .filter(x => getPrefScore(x.m.creneau_prefere) === 1)
-        .sort((a, b) => b.score - a.score)[0]?.i ?? -1;
-      // Pick the lowest-score indifferent in the underweighted group
-      const lowIdx = buckets[low]
-        .map((m, i) => ({ m, i, score: getNiveauScore(m) }))
-        .filter(x => getPrefScore(x.m.creneau_prefere) === 1)
-        .sort((a, b) => a.score - b.score)[0]?.i ?? -1;
-      if (highIdx === -1 || lowIdx === -1) break;
-      if (getNiveauScore(buckets[high][highIdx]) <= getNiveauScore(buckets[low][lowIdx])) break;
-      const tmp = buckets[high][highIdx];
-      buckets[high][highIdx] = buckets[low][lowIdx];
-      buckets[low][lowIdx] = tmp;
+  // PHASE 3 — Remplissage chronologique. Le groupe du matin garde le reliquat
+  // (et donc le buffer historique), les suivants sont remplis à capacité. On
+  // place les unités entières par priorité « matin » décroissante ; une grappe
+  // qui ne rentre dans aucun groupe est éclatée en dernier recours.
+  const capacites = [nbEleves - (nbGroupes - 1) * maxParGroupe];
+  for (let i = 1; i < nbGroupes; i++) capacites.push(maxParGroupe);
+  const buckets = capacites.map(() => []);
+  const placer = (membres) => {
+    for (let i = 0; i < buckets.length; i++) {
+      if (buckets[i].length + membres.length <= capacites[i]) {
+        buckets[i].push(...membres);
+        return true;
+      }
     }
+    return false;
+  };
+  unites
+    .sort((a, b) => (b.score - a.score) || (b.membres.length - a.membres.length))
+    .forEach(u => {
+      if (placer(u.membres)) return;
+      u.membres.forEach(m => {
+        // La somme des capacités vaut l'effectif : un élève seul trouve
+        // toujours une place. Le dernier groupe reste un filet de sécurité.
+        if (!placer([m])) buckets[buckets.length - 1].push(m);
+      });
+    });
+
+  // PHASE 4 — Amélioration locale. Le remplissage glouton ci-dessus est bon mais
+  // pas optimal : une grappe de 3 amis qui ne rentre plus dans le groupe du
+  // matin s'y fait doubler par des élèves moins prioritaires. On note donc la
+  // répartition entière, puis on essaie tous les échanges entre deux groupes en
+  // gardant le meilleur, jusqu'à ne plus rien améliorer.
+  //
+  // Les poids traduisent l'ordre de priorité, et l'écart est volontairement
+  // large : aucune combinaison de critères souples ne peut « acheter » un
+  // créneau demandé. Les effectifs des groupes ne changent jamais (on échange,
+  // on ne déplace pas), donc le dimensionnement matin/après-midi est préservé.
+  const POIDS = {
+    creneau: 500, // créneau explicitement demandé dans le formulaire
+    ami: 60,      // par ami retrouvé dans le même groupe
+    trajet: 10,   // par palier de trajet, dégressif du matin vers le soir
+    scooter: 20,  // par scooter que le groupe ne peut pas armer, faute de pilote
+    niveau: 6,    // écart de niveau moyen entre le groupe le plus fort et le plus faible
+  };
+  const heures = buckets.map((_, i) => heureForGroupe(i, heuresDefaut));
+  const matinParGroupe = heures.map(heure => isGroupeMatin({ heure }));
+  const moyenneNiveau = (b) => (b.length ? b.reduce((s, x) => s + getNiveauScore(x), 0) / b.length : 0);
+  const nbPilotes = (b) => b.filter(peutPiloterScooter).length;
+  const dernier = Math.max(1, buckets.length - 1);
+
+  const noter = (bks) => {
+    let score = 0;
+    bks.forEach((membres, i) => {
+      const parCluster = new Map();
+      membres.forEach(m => {
+        const pref = getPrefScore(m.creneau_prefere);
+        if (pref !== 1) {
+          score += ((pref >= 2) === matinParGroupe[i] ? 1 : -1) * POIDS.creneau;
+        }
+        // Trajet : d'autant mieux récompensé que le groupe est tôt. Neutralisé
+        // pour qui a demandé l'après-midi — on ne le contredit pas « pour son
+        // bien ».
+        if (pref !== 0) {
+          score += POIDS.trajet * getTrajetScore(m) * ((dernier - i) / dernier);
+        }
+        const c = amis.byKey[inviteeKey(m)];
+        if (c) parCluster.set(c, (parCluster.get(c) || 0) + 1);
+      });
+      // Amis réunis : un bonus par ami présent en plus du premier.
+      parCluster.forEach(n => { score += POIDS.ami * (n - 1); });
+      // Scooters non armables faute de pilotes dans ce groupe.
+      score -= POIDS.scooter * Math.max(0, Math.min(maxScooters, membres.length) - nbPilotes(membres));
+    });
+    // Équilibre des niveaux : pénalise l'écart entre groupes (évite le groupe
+    // 100 % débutants face au groupe 100 % confirmés).
+    const moyennes = bks.filter(b => b.length).map(moyenneNiveau);
+    if (moyennes.length > 1) {
+      score -= POIDS.niveau * (Math.max(...moyennes) - Math.min(...moyennes));
+    }
+    return score;
+  };
+
+  const echanger = (a, i, b, j) => {
+    const tmp = buckets[a][i];
+    buckets[a][i] = buckets[b][j];
+    buckets[b][j] = tmp;
+  };
+
+  let scoreCourant = noter(buckets);
+  // Effectifs réels ≤ 18 élèves sur ≤ 4 groupes : le balayage complet coûte
+  // quelques centaines d'évaluations, négligeable. La borne évite juste une
+  // boucle infinie si deux échanges s'annulaient à score égal.
+  for (let iter = 0; iter < 50; iter++) {
+    let meilleur = null;
+    for (let a = 0; a < buckets.length; a++) {
+      for (let b = a + 1; b < buckets.length; b++) {
+        for (let i = 0; i < buckets[a].length; i++) {
+          for (let j = 0; j < buckets[b].length; j++) {
+            echanger(a, i, b, j);
+            const s = noter(buckets);
+            echanger(a, i, b, j); // retour arrière
+            if (s > scoreCourant + 1e-9 && (!meilleur || s > meilleur.s)) meilleur = { a, i, b, j, s };
+          }
+        }
+      }
+    }
+    if (!meilleur) break;
+    echanger(meilleur.a, meilleur.i, meilleur.b, meilleur.j);
+    scoreCourant = meilleur.s;
   }
 
   return buckets.map((membres, idx) => ({
     numero: idx + 1,
-    heure: heureForGroupe(idx, heuresDefaut),
+    heure: heures[idx],
     capacite: maxParGroupe,
     membres: assignRoles(membres),
   }));
@@ -309,32 +596,80 @@ export function repartirGroupes(invitees, opts = {}) {
 
 // Compute satisfaction score: how many students got their preferred slot.
 // - Students with no form filled are excluded from the total.
-// - Indifferent students are counted in total but not in respected/nonRespected.
+// - Indifferent students are excluded too : ils ne peuvent être ni satisfaits ni
+//   déçus, les compter dans le total ferait afficher « 1/12 » sur une session
+//   où le seul élève ayant une préférence l'a obtenue.
 // - Clear preference (matin or aprem) counts as respected iff assigned group matches.
-export function computeSatisfaction(groupes) {
+// Le rapport couvre aussi les deux critères souples : les longs trajets placés
+// l'après-midi et les grappes d'amis séparées. `amis` (buildAmisClusters) peut
+// être fourni par l'appelant pour éviter de recalculer les grappes.
+export function computeSatisfaction(groupes, amis) {
   let respected = 0;
   let total = 0;
   const nonRespectedList = [];
+  // Matin = heure réelle avant midi (jamais « groupe n° 1 ») : avec 3 groupes,
+  // 14 h et 18 h sont tous les deux des après-midi.
+  const estMatin = groupes.map(isGroupeMatin);
   groupes.forEach((g, gIdx) => {
     g.membres.forEach(m => {
       if (!m.form_rempli) return;
-      total++;
       const pref = getPrefScore(m.creneau_prefere);
-      if (pref === 1) return; // indifferent: neutral, not counted in respected
+      if (pref === 1) return; // indifférent : ni satisfait ni déçu
+      total++;
       const wantsMorning = pref >= 2;
-      const inMorning = gIdx === 0;
-      if (wantsMorning === inMorning) {
+      if (wantsMorning === estMatin[gIdx]) {
         respected++;
       } else {
         nonRespectedList.push({
           name: m.name || m.email,
           wants: wantsMorning ? 'matin' : 'après-midi',
-          assignedGroup: gIdx + 1,
+          assignedGroup: g.numero,
         });
       }
     });
   });
-  return { respected, total, nonRespected: nonRespectedList.length, nonRespectedList };
+
+  // Trajets longs : le matin est préférable (finir tôt quand la route est
+  // longue). On ne signale pas ceux qui ont eux-mêmes demandé l'après-midi.
+  const trajet = { loinTotal: 0, loinMatin: 0, aprem: [] };
+  groupes.forEach((g, gIdx) => {
+    g.membres.forEach(m => {
+      const t = getTrajetInfo(m);
+      if (!t.loin) return;
+      trajet.loinTotal++;
+      if (estMatin[gIdx]) {
+        trajet.loinMatin++;
+      } else if (getPrefScore(m.creneau_prefere) !== 0) {
+        trajet.aprem.push({ name: formatName(m.name) || m.email, trajet: t.label, groupe: g.numero });
+      }
+    });
+  });
+
+  // Amis : chaque grappe déclarée est-elle réunie dans un seul groupe ?
+  const clusters = amis || buildAmisClusters(groupes.flatMap(g => g.membres));
+  const groupeParKey = new Map();
+  groupes.forEach(g => g.membres.forEach(m => groupeParKey.set(inviteeKey(m), g.numero)));
+  const amisRecap = { total: 0, reunis: 0, separes: [] };
+  clusters.clusters.forEach(c => {
+    const numeros = [...new Set(c.membres.map(m => groupeParKey.get(m.key)).filter(n => n != null))];
+    if (numeros.length === 0) return; // grappe hors de cette session
+    amisRecap.total++;
+    if (numeros.length === 1) {
+      amisRecap.reunis++;
+    } else {
+      amisRecap.separes.push({
+        label: c.label,
+        names: c.membres.map(m => formatName(m.name)),
+        groupes: numeros.sort((a, b) => a - b),
+      });
+    }
+  });
+
+  return {
+    respected, total,
+    nonRespected: nonRespectedList.length, nonRespectedList,
+    trajet, amis: amisRecap,
+  };
 }
 
 const SB_HEADERS = {

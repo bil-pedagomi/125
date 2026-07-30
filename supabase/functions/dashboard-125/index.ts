@@ -180,6 +180,11 @@ Deno.serve(async (req) => {
         creneau_prefere: form?.creneau_prefere || null, temps_trajet: form?.temps_trajet || null,
         source_acquisition: form?.source_acquisition || null, raison_reservation: form?.raison_reservation || null,
         commentaires: form?.commentaires || null,
+        // VIENT-IL AVEC UN PROCHE ? (texte libre : « Rachid LADIB », parfois
+        // plusieurs noms). Utilise pour regrouper les amis dans un meme groupe.
+        reserve_samedi: form?.reserve_samedi || null,
+        avec_un_proche: form?.avec_un_proche || null,
+        accompagnant_nom_complet: form?.accompagnant_nom_complet || null,
         photo_permis_recto: form?.photo_permis_recto || null, photo_permis_verso: form?.photo_permis_verso || null,
         photo_identite: form?.photo_identite || null, photo_signature: form?.photo_signature || null,
         form_submit_date: form?.submit_date || null,

@@ -171,7 +171,10 @@ export default function FicheEleve({ invitee, defaultOpen = false }) {
               <div className="label">Raison réservation</div>
               <div className="value">{invitee.raison_reservation || 'Non renseigné'}</div>
             </div>
-            {invitee.reserve_samedi === 'Oui' && (
+            {/* Vient-il accompagné ? Sert à regrouper les amis dans le même
+                groupe. On affiche dès que la question a une réponse, sans
+                dépendre de reserve_samedi qui ne fait que la déclencher. */}
+            {(invitee.avec_un_proche || invitee.accompagnant_nom_complet) && (
               <>
                 <div className="fiche-eleve-field">
                   <div className="label">Accompagnement</div>
@@ -183,10 +186,10 @@ export default function FicheEleve({ invitee, defaultOpen = false }) {
                         : 'Non renseigné'}
                   </div>
                 </div>
-                {invitee.avec_un_proche === 'Oui' && (
+                {invitee.accompagnant_nom_complet && (
                   <div className="fiche-eleve-field">
-                    <div className="label">Accompagnant</div>
-                    <div className="value">{invitee.accompagnant_nom_complet || <span style={{ color: '#64748b' }}>—</span>}</div>
+                    <div className="label">Vient avec</div>
+                    <div className="value">{invitee.accompagnant_nom_complet}</div>
                   </div>
                 )}
               </>

@@ -3,8 +3,7 @@ import { RefreshCw, Check, AlertTriangle, Pencil, MessageSquare, Send, CheckCirc
 import Avatar from './Avatar';
 import SmsModal from './SmsModal';
 import SmsHistorique from './SmsHistorique';
-import { getNiveauStyle, getNiveauLabel, getNiveauScore, repartirGroupes, fetchGroupes, fetchGroupesMeta, saveGroupes, heureForGroupe, MAX_PAR_GROUPE, MAX_SCOOTERS, computeSatisfaction, fetchConfig, toE164, fetchSMSHistory, formatName, formatHeureSms } from '../utils';
-import useIsMobile from '../hooks/useIsMobile';
+import { getNiveauStyle, getNiveauLabel, getNiveauScore, repartirGroupes, fetchGroupes, fetchGroupesMeta, saveGroupes, heureForGroupe, MAX_PAR_GROUPE, MAX_SCOOTERS, computeSatisfaction, fetchConfig, toE164, fetchSMSHistory, formatName, formatHeureSms, peutPiloterScooter, inviteeKey, buildAmisClusters, getTrajetInfo, isGroupeMatin } from '../utils';
 
 const CRENEAU_DOT = {
   matin: { color: '#378ADD', title: 'Préfère le matin' },
@@ -21,9 +20,8 @@ function getCreneauType(pref) {
 
 // A student whose level can't justify a scooter on its own. The AUTO algorithm
 // never puts these on a scooter, but a human may override it manually.
-const NIVEAU_INELIGIBLE_SCOOTER = ['Jamais conduit', 'Formulaire manquant', 'Non renseigné'];
 function isIneligibleScooter(m) {
-  return NIVEAU_INELIGIBLE_SCOOTER.includes(getNiveauLabel(m));
+  return !peutPiloterScooter(m);
 }
 
 function getValidationErrors(groupes) {
@@ -80,13 +78,6 @@ function memberNotifStatus(membre, currentHeure, smsRows) {
 
 // Sort groups by start time (ascending) and renumber 1..k. Chronological
 // order drives everything: earliest group = Groupe 1. Pure helper.
-// Stable identity of a student, used to tell whether an invitee already sits in
-// a group. invitee_uuid is the reliable key; id/email are fallbacks (mirrors how
-// members are keyed for SMS matching and persistence).
-function inviteeKey(m) {
-  return String(m?.invitee_uuid ?? m?.id ?? m?.email ?? '').trim().toLowerCase();
-}
-
 function sortAndRenumber(groupes) {
   return [...groupes]
     .sort((a, b) => String(a.heure || '').localeCompare(String(b.heure || '')))
@@ -116,6 +107,11 @@ const CSS = `
 .groupes-alert.warn { background: rgba(245,158,11,0.12); color: #f59e0b; }
 .groupes-alert.success { background: rgba(16,185,129,0.12); color: #10b981; }
 .creneau-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+.ami-dot {
+  flex-shrink: 0; width: 14px; height: 14px; border-radius: 50%; border: 1px solid;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 9px; font-weight: 700; line-height: 1; background: rgba(255,255,255,0.04);
+}
 @keyframes spin { to { transform: rotate(360deg); } }
 .spin { animation: spin 1s linear infinite; }
 @media (max-width: 768px) {
@@ -138,7 +134,6 @@ export default function GroupesPanel({ session }) {
   const invitees = session.invitees || [];
   const eventUuid = session.id;
   const dateFormation = session.start_time ? session.start_time.split('T')[0] : null;
-  const isMobile = useIsMobile();
 
   const [groupes, setGroupes] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -399,6 +394,24 @@ export default function GroupesPanel({ session }) {
     ajouterManquants();
   }, [groupes, config, manquants, ajouterManquants]);
 
+  // Grappes d'amis de la session, déduites des noms déclarés dans le formulaire
+  // (« je viens avec … »). Calculées sur la liste des inscrits — donc valables
+  // même avant la première génération des groupes.
+  const amis = useMemo(() => buildAmisClusters(invitees), [invitees]);
+
+  // Où se trouve chaque grappe (numéros de groupes) : sert à signaler d'un coup
+  // d'œil un élève séparé de ses amis.
+  const groupesParAmis = useMemo(() => {
+    const map = new Map();
+    (groupes || []).forEach(g => g.membres.forEach(m => {
+      const c = amis.byKey[inviteeKey(m)];
+      if (!c) return;
+      if (!map.has(c)) map.set(c, new Set());
+      map.get(c).add(g.numero);
+    }));
+    return map;
+  }, [groupes, amis]);
+
   const sauvegarder = useCallback(() => {
     if (groupes) void persistGroupes(groupes);
   }, [groupes, persistGroupes]);
@@ -488,7 +501,7 @@ export default function GroupesPanel({ session }) {
   const errors = groupes ? getValidationErrors(groupes) : [];
   const hasBlockers = errors.some(e => e.type === 'error');
   const allValid = groupes && errors.length === 0;
-  const satisfaction = groupes && groupes.length >= 2 ? computeSatisfaction(groupes) : null;
+  const satisfaction = groupes && groupes.length >= 2 ? computeSatisfaction(groupes, amis) : null;
 
   return (
     <div style={{ marginTop: 12 }}>
@@ -600,6 +613,34 @@ export default function GroupesPanel({ session }) {
               Raison : groupe matin au maximum de capacité avec buffer
             </div>
           )}
+
+          {/* Critère souple : trajet long → plutôt le matin */}
+          {satisfaction.trajet.loinTotal > 0 && (
+            <div style={{ marginTop: 6, paddingTop: 6, borderTop: '1px solid #1e2640' }}>
+              <div style={{ color: satisfaction.trajet.aprem.length === 0 ? '#10b981' : '#f59e0b', fontWeight: 600 }}>
+                {satisfaction.trajet.aprem.length === 0 ? '✅' : '⚠️'} Trajets longs (≥ 1 h) : {satisfaction.trajet.loinMatin}/{satisfaction.trajet.loinTotal} le matin
+              </div>
+              {satisfaction.trajet.aprem.length > 0 && (
+                <div style={{ color: '#94a3b8', marginTop: 3, fontSize: 11 }}>
+                  L'après-midi sans l'avoir demandé : {satisfaction.trajet.aprem.map(x => `${x.name} (${x.trajet}, G${x.groupe})`).join(', ')}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Critère souple : les amis déclarés dans le même groupe */}
+          {satisfaction.amis.total > 0 && (
+            <div style={{ marginTop: 6, paddingTop: 6, borderTop: '1px solid #1e2640' }}>
+              <div style={{ color: satisfaction.amis.separes.length === 0 ? '#10b981' : '#f59e0b', fontWeight: 600 }}>
+                {satisfaction.amis.separes.length === 0 ? '✅' : '⚠️'} Amis réunis : {satisfaction.amis.reunis}/{satisfaction.amis.total} groupe{satisfaction.amis.total > 1 ? 's' : ''} d'amis
+              </div>
+              {satisfaction.amis.separes.map((s, i) => (
+                <div key={i} style={{ color: '#94a3b8', marginTop: 3, fontSize: 11 }}>
+                  Séparés : {s.names.join(' + ')} (groupes {s.groupes.join(' et ')})
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -617,6 +658,13 @@ export default function GroupesPanel({ session }) {
             const nbRePrevenir = notif.filter(s => s === 're-prevenir').length;
             // Anti-doublon : tout le groupe est déjà prévenu pour l'horaire actuel.
             const allPrevenu = !empty && nbPrevenu === g.membres.length;
+            const matin = isGroupeMatin(g);
+            // Props communes aux lignes d'élèves de ce groupe.
+            const rowCtx = {
+              gIdx, matin, nbGroupes: groupes.length, moveToGroupe, toggleRole,
+              smsCtx: { history: smsHistory, onSend: openSmsModalForMember },
+              amis, groupesParAmis,
+            };
             return (
               <div key={g.numero} className="groupe-col">
                 <div className="groupe-header">
@@ -716,9 +764,9 @@ export default function GroupesPanel({ session }) {
                 {scooters.length > 0 && (
                   <>
                     <div className="groupe-section-label">🛵 Scooters ({scooters.length})</div>
-                    {scooters.map((m, mi) => {
+                    {scooters.map(m => {
                       const realIdx = g.membres.indexOf(m);
-                      return renderMembre(m, gIdx, realIdx, groupes.length, moveToGroupe, toggleRole, isMobile, { history: smsHistory, onSend: openSmsModalForMember }, notif[realIdx]);
+                      return renderMembre({ ...rowCtx, m, memIdx: realIdx, notifStatus: notif[realIdx] });
                     })}
                   </>
                 )}
@@ -726,9 +774,9 @@ export default function GroupesPanel({ session }) {
                 {voitures.length > 0 && (
                   <>
                     <div className="groupe-section-label">🚗 Voiture ({voitures.length})</div>
-                    {voitures.map((m, mi) => {
+                    {voitures.map(m => {
                       const realIdx = g.membres.indexOf(m);
-                      return renderMembre(m, gIdx, realIdx, groupes.length, moveToGroupe, toggleRole, isMobile, { history: smsHistory, onSend: openSmsModalForMember }, notif[realIdx]);
+                      return renderMembre({ ...rowCtx, m, memIdx: realIdx, notifStatus: notif[realIdx] });
                     })}
                   </>
                 )}
@@ -763,18 +811,50 @@ export default function GroupesPanel({ session }) {
   );
 }
 
-function renderMembre(m, gIdx, memIdx, nbGroupes, moveToGroupe, toggleRole, isMobile, smsCtx, notifStatus) {
+// Petit badge d'information sous le nom d'un élève.
+function InfoBadge({ children, title, warn }) {
+  return (
+    <span
+      title={title}
+      style={{
+        fontSize: 9, padding: '1px 6px', borderRadius: 8, fontWeight: 600, marginTop: 2, marginLeft: 6,
+        display: 'inline-flex', alignItems: 'center', gap: 3,
+        background: warn ? 'rgba(245,158,11,0.15)' : 'rgba(71,85,105,0.1)',
+        color: warn ? '#f59e0b' : '#64748b',
+      }}
+    >
+      {warn && '⚠️ '}{children}
+    </span>
+  );
+}
+
+function renderMembre({ m, gIdx, memIdx, matin, nbGroupes, moveToGroupe, toggleRole, smsCtx, notifStatus, amis, groupesParAmis }) {
   const nStyle = getNiveauStyle(m);
   const label = nStyle.label;
   const crType = getCreneauType(m.creneau_prefere);
   const dot = CRENEAU_DOT[crType];
   // Manual scooter override on an unverified level: shown as a warning, never blocked.
   const scooterOverride = m.role === 'scooter' && isIneligibleScooter(m);
-  const isMismatched = (crType === 'matin' && gIdx !== 0) || (crType === 'aprem' && gIdx === 0);
+  // Matin / après-midi selon l'HEURE réelle du groupe, pas son numéro.
+  const isMismatched = (crType === 'matin' && !matin) || (crType === 'aprem' && matin);
+
+  // Temps de trajet : un trajet ≥ 1 h l'après-midi est signalé (retour tardif),
+  // sauf si l'élève a lui-même demandé l'après-midi.
+  const trajet = getTrajetInfo(m);
+  const trajetWarn = trajet.loin && !matin && crType !== 'aprem';
+
+  // Amis déclarés dans le formulaire, rapprochés des inscrits de la session.
+  const mKey = inviteeKey(m);
+  const cluster = amis?.byKey[mKey];
+  const amisNoms = cluster
+    ? cluster.membres.filter(x => x.key !== mKey).map(x => formatName(x.name))
+    : [];
+  const amisSepares = cluster ? (groupesParAmis?.get(cluster)?.size ?? 1) > 1 : false;
+  const amisNonInscrits = amis?.nonInscrits[mKey] || [];
 
   return (
     <div
-      key={m.email || m.name}
+      key={mKey || m.email || m.name}
       className="groupe-membre"
       style={{ borderLeft: `3px solid ${nStyle.borderColor}` }}
     >
@@ -784,6 +864,15 @@ function renderMembre(m, gIdx, memIdx, nbGroupes, moveToGroupe, toggleRole, isMo
           {formatName(m.name) !== '—' ? formatName(m.name) : (m.email || '—')}
           {m.modifie_manuellement && <Pencil size={10} style={{ color: '#f59e0b', flexShrink: 0 }} title="Modification manuelle" />}
           <span className="creneau-dot" style={{ background: dot.color }} title={dot.title} />
+          {cluster && (
+            <span
+              className="ami-dot"
+              style={{ borderColor: cluster.color, color: cluster.color }}
+              title={`Groupe d'amis ${cluster.label} : ${[formatName(m.name), ...amisNoms].join(', ')}`}
+            >
+              {cluster.label}
+            </span>
+          )}
         </div>
         <span className="groupe-membre-niveau" style={{ color: nStyle.badgeColor }}>
           {label}
@@ -816,14 +905,34 @@ function renderMembre(m, gIdx, memIdx, nbGroupes, moveToGroupe, toggleRole, isMo
           </span>
         )}
         {m.creneau_prefere && (
-          <span style={{
-            fontSize: 9, padding: '1px 6px', borderRadius: 8, fontWeight: 600, marginTop: 2,
-            display: 'inline-flex', alignItems: 'center', gap: 3,
-            background: isMismatched ? 'rgba(245,158,11,0.15)' : 'rgba(71,85,105,0.1)',
-            color: isMismatched ? '#f59e0b' : '#64748b',
-          }}>
-            {isMismatched && '⚠️ '}{crType === 'matin' ? 'Matin' : crType === 'aprem' ? 'Après-midi' : 'Indifférent'}
-          </span>
+          <InfoBadge warn={isMismatched} title={`Créneau demandé dans le formulaire : ${m.creneau_prefere}`}>
+            {crType === 'matin' ? 'Matin' : crType === 'aprem' ? 'Après-midi' : 'Indifférent'}
+          </InfoBadge>
+        )}
+        {trajet.short && (
+          <InfoBadge
+            warn={trajetWarn}
+            title={trajetWarn
+              ? `Trajet ${trajet.label} : préférable le matin pour ne pas rentrer trop tard`
+              : `Temps de trajet domicile → auto-école : ${trajet.label}`}
+          >
+            📍 {trajet.short}
+          </InfoBadge>
+        )}
+        {cluster && (
+          <InfoBadge
+            warn={amisSepares}
+            title={amisSepares
+              ? `Ami(s) placé(s) dans un autre groupe : ${amisNoms.join(', ')}`
+              : `Vient avec ${amisNoms.join(', ')}`}
+          >
+            👥 {amisNoms.length === 1 ? amisNoms[0] : `${amisNoms.length + 1} amis`}
+          </InfoBadge>
+        )}
+        {amisNonInscrits.length > 0 && (
+          <InfoBadge title={`Proche déclaré mais introuvable parmi les inscrits de cette session : ${amisNonInscrits.join(', ')}`}>
+            👥 {amisNonInscrits.join(', ')} (non inscrit)
+          </InfoBadge>
         )}
       </div>
       <div className="groupe-membre-actions">
