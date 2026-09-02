@@ -28,7 +28,7 @@ export async function fetchTrafficConversion(year) {
     },
     body: JSON.stringify({ p_year: year }),
   });
-  if (!res.ok) throw new Error(`Erreur trafic API: ${res.status}`);
+  if (!res.ok) throw new Error(`Erreur trafic API: ${res.status} — ${await res.text()}`);
   return res.json();
 }
 
@@ -42,7 +42,7 @@ export async function fetchPage125Stats(dateStart, dateEnd) {
     },
     body: JSON.stringify({ p_date_start: dateStart, p_date_end: dateEnd }),
   });
-  if (!res.ok) throw new Error(`Erreur API stats 125: ${res.status}`);
+  if (!res.ok) throw new Error(`Erreur API stats 125: ${res.status} — ${await res.text()}`);
   return res.json();
 }
 

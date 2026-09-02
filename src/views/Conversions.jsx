@@ -154,6 +154,7 @@ function Conversions() {
   const [data, setData] = useState(null);
   const [prevData, setPrevData] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
   const [sortCol, setSortCol] = useState('date');
   const [sortDir, setSortDir] = useState('desc');
 
@@ -165,6 +166,7 @@ function Conversions() {
   const load = useCallback(async () => {
     if (!dateStart || !dateEnd) return;
     setLoading(true);
+    setError(null);
     try {
       const result = await fetchPage125Stats(dateStart, dateEnd);
       setData(result);
@@ -177,6 +179,9 @@ function Conversions() {
       }
     } catch (e) {
       console.error(e);
+      // Une RPC en erreur (403 grant manquant, 500 SQL...) n'est PAS une periode
+      // sans donnees : on l'affiche comme telle au lieu de l'etat vide trompeur.
+      setError(e.message || 'Erreur inconnue');
       setData(null);
       setPrevData(null);
     } finally {
@@ -289,6 +294,10 @@ function Conversions() {
           <div className="spinner" />
           <span>Chargement...</span>
         </div>
+      ) : error ? (
+        <p className="empty-state" style={{ color: '#ef4444' }}>
+          Impossible de charger les stats : {error}
+        </p>
       ) : !data ? (
         <p className="empty-state">Aucune donnee disponible pour cette periode.</p>
       ) : (
