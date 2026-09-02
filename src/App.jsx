@@ -7,6 +7,7 @@ import Eleves from './views/Eleves';
 import Stats from './views/Stats';
 import Conversions from './views/Conversions';
 import LoginPage from './components/LoginPage';
+import { supabase, hasCockpitAccess } from './supabaseClient';
 
 const TABS = [
   { id: 'agenda', label: 'Agenda', icon: CalendarDays },
@@ -16,20 +17,65 @@ const TABS = [
 ];
 
 function App() {
-  const [loggedIn, setLoggedIn] = useState(false);
+  // null = session pas encore connue (on ne sait pas s'il faut afficher le
+  // login), false = deconnecte, true = connecte ET autorise sur le cockpit.
+  const [loggedIn, setLoggedIn] = useState(null);
   const [tab, setTab] = useState('agenda');
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
+  // Session Supabase : restauree au chargement (on reste connecte apres un
+  // rafraichissement) puis suivie en direct — une deconnexion ou un refresh
+  // token expire ramene automatiquement sur l'ecran de login.
   useEffect(() => {
-    if (!loggedIn) return;
+    let cancelled = false;
+
+    const resolve = async (session) => {
+      if (!session) return false;
+      return hasCockpitAccess();
+    };
+
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      const ok = await resolve(session);
+      if (!cancelled) setLoggedIn(ok);
+    });
+
+    // Ne jamais appeler une autre fonction supabase-js DANS ce callback : il
+    // s'execute en tenant le verrou d'auth, et un appel imbrique peut se
+    // bloquer. On repasse donc par la boucle d'evenements avant de verifier.
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      setTimeout(async () => {
+        const ok = await resolve(session);
+        if (!cancelled) {
+          setLoggedIn(ok);
+          if (!ok) { setData(null); setTab('agenda'); }
+        }
+      }, 0);
+    });
+
+    return () => { cancelled = true; sub?.subscription?.unsubscribe(); };
+  }, []);
+
+  useEffect(() => {
+    if (loggedIn !== true) return;
     setLoading(true);
     fetchDashboardData()
       .then(raw => setData(consolidateData(raw)))
       .catch(err => setError(err.message))
       .finally(() => setLoading(false));
   }, [loggedIn]);
+
+  if (loggedIn === null) {
+    return (
+      <div className="app">
+        <div className="loading">
+          <div className="spinner" />
+          <span>Ouverture de la session…</span>
+        </div>
+      </div>
+    );
+  }
 
   if (!loggedIn) {
     return <LoginPage onLogin={() => setLoggedIn(true)} />;
@@ -85,7 +131,7 @@ function App() {
           ))}
           <button
             className="tab logout-btn"
-            onClick={() => { setLoggedIn(false); setData(null); setTab('agenda'); }}
+            onClick={() => { void supabase.auth.signOut(); }}
             title="Déconnexion"
           >
             <LogOut size={16} />

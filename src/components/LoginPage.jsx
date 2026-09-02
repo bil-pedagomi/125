@@ -1,20 +1,55 @@
 import { useState } from 'react';
 import { LogIn } from 'lucide-react';
+import { supabase, hasCockpitAccess } from '../supabaseClient';
 
-const VALID_USER = 'pedagomi';
-const VALID_PASS = 'Ped@gomi125!';
+const INPUT_STYLE = {
+  width: '100%',
+  padding: '10px 14px',
+  fontSize: 14,
+  background: '#1e293b',
+  border: '1px solid #334155',
+  borderRadius: 8,
+  color: '#e2e8f0',
+  outline: 'none',
+  boxSizing: 'border-box',
+};
 
+// Authentification réelle (Supabase Auth) : chacun se connecte avec son propre
+// compte, et c'est la base qui décide de l'accès (f125_app_users / admin paie).
+// L'ancien couple identifiant/mot de passe était écrit en clair dans le bundle
+// JS : il ne gardait rien du tout, tout le monde pouvait lire les données.
 export default function LoginPage({ onLogin }) {
-  const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState(false);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    if (username === VALID_USER && password === VALID_PASS) {
+    if (busy) return;
+    setBusy(true);
+    setError('');
+    try {
+      const { error: authError } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password,
+      });
+      if (authError) {
+        setError('Identifiant ou mot de passe incorrect');
+        return;
+      }
+      // Connecté ≠ autorisé : le cockpit est réservé aux comptes déclarés.
+      if (!(await hasCockpitAccess())) {
+        await supabase.auth.signOut();
+        setError("Ce compte n'a pas accès au cockpit 125");
+        return;
+      }
       onLogin();
-    } else {
-      setError(true);
+    } catch (err) {
+      console.error(err);
+      setError('Connexion impossible — réessayez dans un instant');
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -57,24 +92,16 @@ export default function LoginPage({ onLogin }) {
 
         <div style={{ marginBottom: 16 }}>
           <label style={{ display: 'block', fontSize: 12, color: '#94a3b8', marginBottom: 6, fontWeight: 600 }}>
-            Identifiant
+            Email
           </label>
           <input
-            type="text"
-            value={username}
-            onChange={e => { setUsername(e.target.value); setError(false); }}
+            type="email"
+            value={email}
+            onChange={e => { setEmail(e.target.value); setError(''); }}
             autoComplete="username"
-            style={{
-              width: '100%',
-              padding: '10px 14px',
-              fontSize: 14,
-              background: '#1e293b',
-              border: '1px solid #334155',
-              borderRadius: 8,
-              color: '#e2e8f0',
-              outline: 'none',
-              boxSizing: 'border-box',
-            }}
+            autoCapitalize="none"
+            spellCheck="false"
+            style={INPUT_STYLE}
           />
         </div>
 
@@ -85,19 +112,9 @@ export default function LoginPage({ onLogin }) {
           <input
             type="password"
             value={password}
-            onChange={e => { setPassword(e.target.value); setError(false); }}
+            onChange={e => { setPassword(e.target.value); setError(''); }}
             autoComplete="current-password"
-            style={{
-              width: '100%',
-              padding: '10px 14px',
-              fontSize: 14,
-              background: '#1e293b',
-              border: '1px solid #334155',
-              borderRadius: 8,
-              color: '#e2e8f0',
-              outline: 'none',
-              boxSizing: 'border-box',
-            }}
+            style={INPUT_STYLE}
           />
         </div>
 
@@ -112,27 +129,27 @@ export default function LoginPage({ onLogin }) {
             marginBottom: 16,
             textAlign: 'center',
           }}>
-            Identifiant ou mot de passe incorrect
+            {error}
           </div>
         )}
 
-        <button type="submit" style={{
+        <button type="submit" disabled={busy} style={{
           width: '100%',
           padding: '12px 0',
           fontSize: 15,
           fontWeight: 700,
           color: '#fff',
-          background: '#6C63FF',
+          background: busy ? '#4c46b8' : '#6C63FF',
           border: 'none',
           borderRadius: 10,
-          cursor: 'pointer',
+          cursor: busy ? 'default' : 'pointer',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
           gap: 8,
         }}>
           <LogIn size={16} />
-          Se connecter
+          {busy ? 'Connexion…' : 'Se connecter'}
         </button>
       </form>
     </div>

@@ -1,6 +1,6 @@
+import { SUPABASE_URL, SUPABASE_ANON_KEY, sbHeaders, getAccessToken } from './supabaseClient';
+
 const API_URL = 'https://yuolnqyejxtfpxntflle.supabase.co/functions/v1/dashboard-125?key=eb498a94-3602-46a4-bce7-df288002402d';
-const SUPABASE_URL = 'https://yuolnqyejxtfpxntflle.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inl1b2xucXllanh0ZnB4bnRmbGxlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIxOTIzNzcsImV4cCI6MjA4Nzc2ODM3N30.cktsC7ly3ImeIY_2mVmxo0phSTz3obIG3UHgl_iDa7U';
 
 const FILE_PROXY_KEY = 'eb498a94-3602-46a4-bce7-df288002402d';
 
@@ -21,11 +21,7 @@ export async function fetchDashboardData() {
 export async function fetchTrafficConversion(year) {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/get_traffic_conversion`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'apikey': SUPABASE_ANON_KEY,
-      'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-    },
+    headers: await sbHeaders(),
     body: JSON.stringify({ p_year: year }),
   });
   if (!res.ok) throw new Error(`Erreur trafic API: ${res.status} — ${await res.text()}`);
@@ -35,11 +31,7 @@ export async function fetchTrafficConversion(year) {
 export async function fetchPage125Stats(dateStart, dateEnd) {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/get_page125_stats`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'apikey': SUPABASE_ANON_KEY,
-      'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-    },
+    headers: await sbHeaders(),
     body: JSON.stringify({ p_date_start: dateStart, p_date_end: dateEnd }),
   });
   if (!res.ok) throw new Error(`Erreur API stats 125: ${res.status} — ${await res.text()}`);
@@ -337,16 +329,13 @@ export function computeSatisfaction(groupes) {
   return { respected, total, nonRespected: nonRespectedList.length, nonRespectedList };
 }
 
-const SB_HEADERS = {
-  'Content-Type': 'application/json',
-  'apikey': SUPABASE_ANON_KEY,
-  'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-  'Prefer': 'return=representation',
-};
+// Les en-tetes PostgREST sont desormais construits a la demande (sbHeaders) :
+// ils portent le JWT de l'utilisateur connecte, pas la cle anon. Un appel fait
+// sans session part sans jeton et se solde par un 401 explicite.
 
 export async function fetchGroupes(eventUuid) {
   const url = `${SUPABASE_URL}/rest/v1/formation_groupes?calendly_event_uuid=eq.${encodeURIComponent(eventUuid)}&order=groupe_numero,ordre_passage`;
-  const res = await fetch(url, { headers: SB_HEADERS });
+  const res = await fetch(url, { headers: await sbHeaders() });
   if (!res.ok) throw new Error(`Erreur fetch groupes: ${res.status}`);
   return res.json();
 }
@@ -355,7 +344,7 @@ export async function fetchGroupes(eventUuid) {
 // group's start time and capacity, independent of its members.
 export async function fetchGroupesMeta(eventUuid) {
   const url = `${SUPABASE_URL}/rest/v1/formation_groupes_meta?calendly_event_uuid=eq.${encodeURIComponent(eventUuid)}&order=numero`;
-  const res = await fetch(url, { headers: SB_HEADERS });
+  const res = await fetch(url, { headers: await sbHeaders() });
   if (!res.ok) throw new Error(`Erreur fetch groupes meta: ${res.status}`);
   return res.json();
 }
@@ -365,7 +354,7 @@ export async function fetchGroupesMeta(eventUuid) {
 async function sbDelete(path) {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
     method: 'DELETE',
-    headers: SB_HEADERS,
+    headers: await sbHeaders(),
   });
   if (!res.ok && res.status !== 404) {
     const errText = await res.text().catch(() => '');
@@ -377,7 +366,7 @@ async function sbDelete(path) {
 // Never hardcode values that live in this table — always read from here.
 export async function fetchConfig() {
   const url = `${SUPABASE_URL}/rest/v1/f125_config?select=cle,valeur`;
-  const res = await fetch(url, { headers: SB_HEADERS });
+  const res = await fetch(url, { headers: await sbHeaders() });
   if (!res.ok) throw new Error(`Erreur fetch config: ${res.status}`);
   const rows = await res.json();
   const config = {};
@@ -411,7 +400,8 @@ export async function sendSMSViaEdgeFunction({ calendly_event_uuid, groupe_numer
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+      'apikey': SUPABASE_ANON_KEY,
+      'Authorization': `Bearer ${(await getAccessToken()) ?? SUPABASE_ANON_KEY}`,
     },
     body: JSON.stringify({ calendly_event_uuid, groupe_numero, date_formation, heure_groupe, destinataires }),
   });
@@ -424,7 +414,7 @@ export async function sendSMSViaEdgeFunction({ calendly_event_uuid, groupe_numer
 
 export async function fetchSMSHistory(eventUuid) {
   const url = `${SUPABASE_URL}/rest/v1/sms_queue?calendly_event_uuid=eq.${encodeURIComponent(eventUuid)}&order=created_at.desc`;
-  const res = await fetch(url, { headers: SB_HEADERS });
+  const res = await fetch(url, { headers: await sbHeaders() });
   if (!res.ok) throw new Error(`Erreur fetch SMS history: ${res.status}`);
   return res.json();
 }
@@ -434,7 +424,7 @@ export async function saveSmsTemplate(groupeNum, template) {
   const url = `${SUPABASE_URL}/rest/v1/f125_config?cle=eq.${encodeURIComponent(cle)}`;
   const res = await fetch(url, {
     method: 'PATCH',
-    headers: { ...SB_HEADERS, 'Prefer': 'return=representation' },
+    headers: await sbHeaders({ Prefer: 'return=representation' }),
     body: JSON.stringify({ valeur: template }),
   });
   if (!res.ok) {
@@ -485,7 +475,7 @@ export async function saveGroupes(eventUuid, dateFormation, groupes) {
       `${SUPABASE_URL}/rest/v1/formation_groupes?on_conflict=calendly_event_uuid,invitee_uuid`,
       {
         method: 'POST',
-        headers: { ...SB_HEADERS, 'Prefer': 'resolution=merge-duplicates, return=representation' },
+        headers: await sbHeaders({ Prefer: 'resolution=merge-duplicates, return=representation' }),
         body: JSON.stringify(rows),
       }
     );
@@ -515,7 +505,7 @@ export async function saveGroupes(eventUuid, dateFormation, groupes) {
       `${SUPABASE_URL}/rest/v1/formation_groupes_meta?on_conflict=calendly_event_uuid,numero`,
       {
         method: 'POST',
-        headers: { ...SB_HEADERS, 'Prefer': 'resolution=merge-duplicates, return=representation' },
+        headers: await sbHeaders({ Prefer: 'resolution=merge-duplicates, return=representation' }),
         body: JSON.stringify(metaRows),
       }
     );
@@ -543,7 +533,7 @@ export async function saveGroupes(eventUuid, dateFormation, groupes) {
 // Toutes les lignes d'attribution, à fusionner par calendly_uuid côté client.
 export async function fetchSessionsMeta() {
   const url = `${SUPABASE_URL}/rest/v1/f125_session_meta?select=calendly_uuid,fait_par,nb_groupes,note`;
-  const res = await fetch(url, { headers: SB_HEADERS });
+  const res = await fetch(url, { headers: await sbHeaders() });
   if (!res.ok) throw new Error(`Erreur fetch attribution sessions: ${res.status}`);
   return res.json();
 }
@@ -555,7 +545,7 @@ export async function upsertSessionMeta(meta) {
   const url = `${SUPABASE_URL}/rest/v1/f125_session_meta?on_conflict=calendly_uuid`;
   const res = await fetch(url, {
     method: 'POST',
-    headers: { ...SB_HEADERS, 'Prefer': 'resolution=merge-duplicates, return=representation' },
+    headers: await sbHeaders({ Prefer: 'resolution=merge-duplicates, return=representation' }),
     body: JSON.stringify({ ...meta, updated_at: new Date().toISOString() }),
   });
   if (!res.ok) {
