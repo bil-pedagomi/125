@@ -194,6 +194,141 @@ export function getNiveauScore(inv) {
   return SCORE_NIVEAU[getNiveauLabel(inv)] ?? 0;
 }
 
+// --- Accompagnement : « Je viens avec un proche » (Typeform) ---
+// Le formulaire demande si l'élève vient accompagné, puis le NOM + PRÉNOM de la
+// personne, en TEXTE LIBRE. On y retrouve donc, selon l'élève : l'ordre inversé
+// ("Ciaravino Mattéo" vs "Matteo Ciaravino"), la casse (« JUBIN Sandrine »),
+// les accents (« Nicolas Prévost » saisi « Nicolas Prevost »), voire plusieurs
+// personnes (« Rachid LADIB et Muhammed ALTUNDAG »). Le rapprochement se fait
+// donc sur des ENSEMBLES DE JETONS normalisés, jamais sur la chaîne brute.
+
+// Particules et civilités : trop fréquentes pour distinguer deux personnes.
+const NAME_STOPWORDS = new Set([
+  'de', 'du', 'des', 'le', 'la', 'les', 'el', 'al', 'da', 'di', 'van', 'von',
+  'den', 'der', 'ben', 'bin', 'mr', 'mme', 'mlle', 'dr',
+]);
+
+// "Jean-Chiraze AÏNTABI" → ['jean', 'chiraze', 'aintabi']
+export function normalizeNameTokens(raw) {
+  if (!raw) return [];
+  return String(raw)
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // accents
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .split(' ')
+    .filter(t => t.length >= 2 && !NAME_STOPWORDS.has(t));
+}
+
+// Un même champ peut nommer plusieurs personnes.
+const ACCOMPAGNANT_SEP = /\s*(?:,|;|\/|\+|&|\bet\b)\s*/i;
+
+export function splitAccompagnants(raw) {
+  if (!raw) return [];
+  return String(raw).split(ACCOMPAGNANT_SEP).map(s => s.trim()).filter(Boolean);
+}
+
+// Identité stable d'un élève, partagée par la répartition, la persistance et
+// le rapprochement SMS. invitee_uuid est la clé fiable ; id/email sont des
+// filets de sécurité.
+export function inviteeKey(m) {
+  return String(m?.invitee_uuid ?? m?.id ?? m?.email ?? '').trim().toLowerCase();
+}
+
+// Rapproche UN nom saisi en texte libre d'un élève de la même session.
+//  - 2 jetons communs (nom + prénom) → rapprochement sûr ;
+//  - 1 seul jeton distinctif (≥ 4 lettres) → accepté uniquement s'il ne
+//    désigne qu'un seul élève.
+// Toute ambiguïté (deux élèves à égalité) vaut « pas de rapprochement » :
+// mettre deux inconnus ensemble est pire que de ne rien faire.
+function matchAccompagnant(fragment, candidats) {
+  const tokens = normalizeNameTokens(fragment);
+  if (tokens.length === 0) return null;
+
+  const scored = candidats.map(c => ({
+    c,
+    shared: tokens.filter(t => c.tokens.includes(t)).length,
+  }));
+
+  const certains = scored.filter(s => s.shared >= 2).sort((a, b) => b.shared - a.shared);
+  if (certains.length > 0) {
+    if (certains.length > 1 && certains[1].shared === certains[0].shared) return null; // ambigu
+    return certains[0].c;
+  }
+
+  const distinctifs = tokens.filter(t => t.length >= 4);
+  const uniques = scored.filter(s => s.c.tokens.some(t => distinctifs.includes(t)));
+  return uniques.length === 1 ? uniques[0].c : null;
+}
+
+// Construit les affinités d'une session : qui a demandé à venir avec qui.
+// Le lien est SYMÉTRIQUE — une seule déclaration suffit à apparier deux élèves,
+// l'autre n'ayant pas toujours rempli (ou nommé) son binôme.
+// Retourne :
+//   partenaires   Map(clé → [élève, …])   binômes inscrits sur la session
+//   externes      Map(clé → ['Mazen Rikab', …]) accompagnants NON inscrits
+//   clusterByKey  Map(clé → clé racine)   groupes d'élèves à ne pas séparer
+//   clusters      Map(clé racine → [clé, …]) uniquement ceux de 2 élèves ou +
+export function buildAffinites(invitees) {
+  const list = (invitees || []).map(inv => ({
+    inv,
+    key: inviteeKey(inv),
+    tokens: normalizeNameTokens(inv.name || inv.form_nom || ''),
+  }));
+
+  const parent = new Map(list.map(c => [c.key, c.key]));
+  const find = (k) => {
+    let r = k;
+    while (parent.get(r) !== r) r = parent.get(r);
+    while (parent.get(k) !== r) { const next = parent.get(k); parent.set(k, r); k = next; }
+    return r;
+  };
+  const union = (a, b) => {
+    const ra = find(a), rb = find(b);
+    if (ra !== rb) parent.set(ra, rb);
+  };
+
+  const partenaires = new Map(list.map(c => [c.key, []]));
+  const externes = new Map(list.map(c => [c.key, []]));
+
+  list.forEach(c => {
+    if (c.inv.avec_un_proche !== 'Oui') return;
+    splitAccompagnants(c.inv.accompagnant_nom_complet).forEach(fragment => {
+      // Certains se renomment eux-mêmes dans le champ : à ignorer, ce n'est
+      // ni un binôme ni un proche extérieur.
+      if (matchAccompagnant(fragment, [c]) === c) return;
+      const autre = matchAccompagnant(fragment, list.filter(x => x.key !== c.key));
+      if (!autre) {
+        // Proche non retrouvé parmi les inscrits : soit il ne suit pas la
+        // formation, soit le nom saisi est trop ambigu pour trancher.
+        externes.get(c.key).push(fragment);
+        return;
+      }
+      if (!partenaires.get(c.key).some(p => inviteeKey(p) === autre.key)) {
+        partenaires.get(c.key).push(autre.inv);
+      }
+      if (!partenaires.get(autre.key).some(p => inviteeKey(p) === c.key)) {
+        partenaires.get(autre.key).push(c.inv);
+      }
+      union(c.key, autre.key);
+    });
+  });
+
+  const clusterByKey = new Map();
+  const clusters = new Map();
+  list.forEach(c => {
+    const root = find(c.key);
+    clusterByKey.set(c.key, root);
+    if (!clusters.has(root)) clusters.set(root, []);
+    clusters.get(root).push(c.key);
+  });
+  for (const [root, membres] of [...clusters]) {
+    if (membres.length < 2) clusters.delete(root);
+  }
+
+  return { partenaires, externes, clusterByKey, clusters };
+}
+
 export function getPrefScore(val) {
   if (!val) return 1; // indifferent
   const s = val.toLowerCase();
@@ -253,29 +388,68 @@ export function repartirGroupes(invitees, opts = {}) {
   // Default number of groups = what it takes to seat everyone at capacity.
   const nbGroupes = Math.ceil(nbEleves / maxParGroupe);
 
+  // PHASE 0 — Accompagnements : les élèves qui ont déclaré venir avec un proche
+  //           lui-même inscrit forment un BLOC INSÉCABLE. Ils sont répartis
+  //           ensemble, quitte à décaler le créneau préféré de l'un d'eux :
+  //           l'affinité prime sur la préférence horaire (un élève qui vient
+  //           avec son frère veut d'abord être avec son frère).
+  const affinites = buildAffinites(invitees);
+  const blocsMap = new Map();
+  invitees.forEach(inv => {
+    const key = inviteeKey(inv);
+    const root = affinites.clusterByKey.get(key) ?? key;
+    if (!blocsMap.has(root)) blocsMap.set(root, []);
+    blocsMap.get(root).push(inv);
+  });
+  // Un bloc plus grand qu'un groupe ne peut pas tenir : on le tronçonne en
+  // morceaux de la taille d'un groupe (cas théorique, jamais vu en pratique).
+  const blocs = [];
+  for (const membres of blocsMap.values()) {
+    for (let i = 0; i < membres.length; i += maxParGroupe) {
+      blocs.push(membres.slice(i, i + maxParGroupe));
+    }
+  }
+
   // PHASE 1 — Sort by preference DESC (tôt matin > matin > indifferent > aprem),
-  //           then by niveau DESC as tiebreaker
-  const sorted = [...invitees].sort((a, b) => {
-    const prefDiff = getPrefScore(b.creneau_prefere) - getPrefScore(a.creneau_prefere);
+  //           then by niveau DESC as tiebreaker. A bloc is ranked on the AVERAGE
+  //           preference of its members (a mixed pair lands in between) and on
+  //           the level of its strongest rider.
+  const prefBloc = (b) => b.reduce((s, x) => s + getPrefScore(x.creneau_prefere), 0) / b.length;
+  const niveauBloc = (b) => Math.max(...b.map(getNiveauScore));
+  const sortedBlocs = [...blocs].sort((a, b) => {
+    const prefDiff = prefBloc(b) - prefBloc(a);
     if (prefDiff !== 0) return prefDiff;
-    return getNiveauScore(b) - getNiveauScore(a);
+    return niveauBloc(b) - niveauBloc(a);
   });
 
-  // PHASE 2 — Slice into groups: morning gets the first `tailleMatin` students
-  //           (those with strongest morning preference), rest fills afternoon
-  //           groups to capacity. Morning group size = remainder to preserve buffer.
+  // PHASE 2 — Fill groups in order: morning takes the first `tailleMatin`
+  //           students (those with strongest morning preference), the rest fills
+  //           afternoon groups to capacity. Morning group size = remainder to
+  //           preserve buffer. A bloc goes to the first group that can take it
+  //           WHOLE; the students that follow close the gap it left behind.
+  //           With no accompagnement declared, every bloc is a single student
+  //           and this is exactly the historical slicing.
   const tailleMatin = nbEleves - (nbGroupes - 1) * maxParGroupe;
-  const buckets = [sorted.slice(0, tailleMatin)];
-  for (let i = 1; i < nbGroupes; i++) {
-    const start = tailleMatin + (i - 1) * maxParGroupe;
-    buckets.push(sorted.slice(start, start + maxParGroupe));
-  }
+  const tailles = [tailleMatin];
+  for (let i = 1; i < nbGroupes; i++) tailles.push(maxParGroupe);
+  const buckets = tailles.map(() => []);
+  sortedBlocs.forEach(bloc => {
+    let idx = buckets.findIndex((b, i) => b.length + bloc.length <= tailles[i]);
+    // Aucun groupe ne peut l'accueillir en entier (arrondis) → le moins rempli.
+    if (idx === -1) {
+      idx = buckets.reduce((best, b, i) => (b.length < buckets[best].length ? i : best), 0);
+    }
+    buckets[idx].push(...bloc);
+  });
 
   // PHASE 3 — Light level homogenization (2-group case only): if niveau
   //           imbalance > 2 points, swap indifferents between groups to
   //           rebalance without breaking any clear preference.
+  //           Un élève engagé dans un accompagnement n'est jamais permuté :
+  //           l'équilibrage ne doit pas défaire ce que la phase 0 a assemblé.
   if (nbGroupes === 2 && buckets[0].length > 0 && buckets[1].length > 0) {
     const avg = (b) => b.reduce((s, x) => s + getNiveauScore(x), 0) / b.length;
+    const estPermutable = (m) => !affinites.clusters.has(affinites.clusterByKey.get(inviteeKey(m)));
     for (let iter = 0; iter < 5; iter++) {
       const diff = avg(buckets[0]) - avg(buckets[1]);
       if (Math.abs(diff) <= 2) break;
@@ -284,12 +458,12 @@ export function repartirGroupes(invitees, opts = {}) {
       // Pick the highest-score indifferent in the overweighted group
       const highIdx = buckets[high]
         .map((m, i) => ({ m, i, score: getNiveauScore(m) }))
-        .filter(x => getPrefScore(x.m.creneau_prefere) === 1)
+        .filter(x => getPrefScore(x.m.creneau_prefere) === 1 && estPermutable(x.m))
         .sort((a, b) => b.score - a.score)[0]?.i ?? -1;
       // Pick the lowest-score indifferent in the underweighted group
       const lowIdx = buckets[low]
         .map((m, i) => ({ m, i, score: getNiveauScore(m) }))
-        .filter(x => getPrefScore(x.m.creneau_prefere) === 1)
+        .filter(x => getPrefScore(x.m.creneau_prefere) === 1 && estPermutable(x.m))
         .sort((a, b) => a.score - b.score)[0]?.i ?? -1;
       if (highIdx === -1 || lowIdx === -1) break;
       if (getNiveauScore(buckets[high][highIdx]) <= getNiveauScore(buckets[low][lowIdx])) break;
@@ -335,6 +509,54 @@ export function computeSatisfaction(groupes) {
     });
   });
   return { respected, total, nonRespected: nonRespectedList.length, nonRespectedList };
+}
+
+// Accompagnements réellement respectés par la répartition affichée.
+// Recalculé à partir des groupes COURANTS (et non de la proposition initiale) :
+// un déplacement manuel qui sépare deux proches doit se voir immédiatement.
+// Retourne aussi les proches déclarés qui ne suivent pas la formation (`externes`),
+// que l'on affiche à titre informatif — ils n'entrent dans aucun décompte.
+export function computeAccompagnements(groupes) {
+  const membres = [];
+  const groupeByKey = new Map();
+  groupes.forEach(g => g.membres.forEach(m => {
+    membres.push(m);
+    groupeByKey.set(inviteeKey(m), g.numero);
+  }));
+
+  const { partenaires, externes } = buildAffinites(membres);
+
+  const seen = new Set();
+  const paires = [];
+  membres.forEach(m => {
+    const key = inviteeKey(m);
+    (partenaires.get(key) || []).forEach(autre => {
+      const autreKey = inviteeKey(autre);
+      const pairId = [key, autreKey].sort().join('|');
+      if (seen.has(pairId)) return;
+      seen.add(pairId);
+      paires.push({
+        a: m,
+        b: autre,
+        groupeA: groupeByKey.get(key),
+        groupeB: groupeByKey.get(autreKey),
+        ensemble: groupeByKey.get(key) === groupeByKey.get(autreKey),
+      });
+    });
+  });
+
+  const externesList = [];
+  membres.forEach(m => {
+    (externes.get(inviteeKey(m)) || []).forEach(nom => externesList.push({ eleve: m, proche: nom }));
+  });
+
+  return {
+    paires,
+    total: paires.length,
+    respected: paires.filter(p => p.ensemble).length,
+    separes: paires.filter(p => !p.ensemble),
+    externes: externesList,
+  };
 }
 
 const SB_HEADERS = {
