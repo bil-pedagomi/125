@@ -180,6 +180,13 @@ Deno.serve(async (req) => {
         creneau_prefere: form?.creneau_prefere || null, temps_trajet: form?.temps_trajet || null,
         source_acquisition: form?.source_acquisition || null, raison_reservation: form?.raison_reservation || null,
         commentaires: form?.commentaires || null,
+        // Accompagnement (Typeform : « venez-vous avec un proche ? » + nom/prenom).
+        // form_nom est le nom tel qu'ecrit sur le formulaire : il sert de nom
+        // alternatif au rapprochement de l'accompagnant declare (texte libre).
+        form_nom: form?.nom || null,
+        reserve_samedi: form?.reserve_samedi || null,
+        avec_un_proche: form?.avec_un_proche || null,
+        accompagnant_nom_complet: form?.accompagnant_nom_complet || null,
         photo_permis_recto: form?.photo_permis_recto || null, photo_permis_verso: form?.photo_permis_verso || null,
         photo_identite: form?.photo_identite || null, photo_signature: form?.photo_signature || null,
         form_submit_date: form?.submit_date || null,

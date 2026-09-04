@@ -3,7 +3,7 @@ import { RefreshCw, Check, AlertTriangle, Pencil, MessageSquare, Send, CheckCirc
 import Avatar from './Avatar';
 import SmsModal from './SmsModal';
 import SmsHistorique from './SmsHistorique';
-import { getNiveauStyle, getNiveauLabel, getNiveauScore, repartirGroupes, fetchGroupes, fetchGroupesMeta, saveGroupes, heureForGroupe, MAX_PAR_GROUPE, MAX_SCOOTERS, computeSatisfaction, fetchConfig, toE164, fetchSMSHistory, formatName, formatHeureSms } from '../utils';
+import { getNiveauStyle, getNiveauLabel, getNiveauScore, repartirGroupes, fetchGroupes, fetchGroupesMeta, saveGroupes, heureForGroupe, MAX_PAR_GROUPE, MAX_SCOOTERS, computeSatisfaction, computeAccompagnements, buildAffinites, inviteeKey, fetchConfig, toE164, fetchSMSHistory, formatName, formatHeureSms } from '../utils';
 import useIsMobile from '../hooks/useIsMobile';
 
 const CRENEAU_DOT = {
@@ -80,13 +80,6 @@ function memberNotifStatus(membre, currentHeure, smsRows) {
 
 // Sort groups by start time (ascending) and renumber 1..k. Chronological
 // order drives everything: earliest group = Groupe 1. Pure helper.
-// Stable identity of a student, used to tell whether an invitee already sits in
-// a group. invitee_uuid is the reliable key; id/email are fallbacks (mirrors how
-// members are keyed for SMS matching and persistence).
-function inviteeKey(m) {
-  return String(m?.invitee_uuid ?? m?.id ?? m?.email ?? '').trim().toLowerCase();
-}
-
 function sortAndRenumber(groupes) {
   return [...groupes]
     .sort((a, b) => String(a.heure || '').localeCompare(String(b.heure || '')))
@@ -135,7 +128,9 @@ function formatTimeAgo(ts, now) {
 }
 
 export default function GroupesPanel({ session }) {
-  const invitees = session.invitees || [];
+  // Identité stable : `session.invitees || []` recréait un tableau à chaque
+  // rendu, ce qui invalidait inutilement les hooks qui en dépendent.
+  const invitees = useMemo(() => session.invitees || [], [session.invitees]);
   const eventUuid = session.id;
   const dateFormation = session.start_time ? session.start_time.split('T')[0] : null;
   const isMobile = useIsMobile();
@@ -355,10 +350,22 @@ export default function GroupesPanel({ session }) {
     const maxScooters = algoDefaults.maxScooters;
     const next = groupes.map(g => ({ ...g, membres: [...g.membres] }));
 
+    // A latecomer who declared coming with someone already seated joins THAT
+    // group first (if it still has room): the accompagnement is the whole point
+    // of the pairing, and re-running the full split would wipe manual edits.
+    const affinites = buildAffinites(invitees);
+
     // Strongest riders first so the scarce scooter seats go to those who qualify.
     const toAdd = [...manquants].sort((a, b) => getNiveauScore(b) - getNiveauScore(a));
     toAdd.forEach(inv => {
-      let target = next.find(g => g.membres.length < (g.capacite ?? MAX_PAR_GROUPE));
+      const partenaires = affinites.partenaires.get(inviteeKey(inv)) || [];
+      const partenaireKeys = partenaires.map(inviteeKey);
+      let target = partenaireKeys.length
+        ? next.find(g =>
+            g.membres.length < (g.capacite ?? MAX_PAR_GROUPE) &&
+            g.membres.some(m => partenaireKeys.includes(inviteeKey(m))))
+        : null;
+      if (!target) target = next.find(g => g.membres.length < (g.capacite ?? MAX_PAR_GROUPE));
       if (!target) {
         target = {
           numero: next.length + 1, // provisional — sortAndRenumber reassigns by hour
@@ -382,7 +389,7 @@ export default function GroupesPanel({ session }) {
     const result = sortAndRenumber(next);
     setGroupes(result);
     void persistGroupes(result);
-  }, [groupes, manquants, algoDefaults, persistGroupes]);
+  }, [groupes, manquants, invitees, algoDefaults, persistGroupes]);
 
   // Auto-repair, once per session view: if the saved groups are missing students
   // who enrolled after the groups were built, fold them in and persist — without
@@ -489,6 +496,26 @@ export default function GroupesPanel({ session }) {
   const hasBlockers = errors.some(e => e.type === 'error');
   const allValid = groupes && errors.length === 0;
   const satisfaction = groupes && groupes.length >= 2 ? computeSatisfaction(groupes) : null;
+  // Accompagnements recalculés sur les groupes AFFICHÉS : un déplacement manuel
+  // qui sépare deux proches bascule aussitôt la carte en avertissement.
+  const accompagnements = groupes ? computeAccompagnements(groupes) : null;
+  // Index lu par chaque carte élève : binômes inscrits (avec leur groupe) et
+  // proches déclarés qu'on n'a pas retrouvés dans la session.
+  const accIndex = new Map();
+  if (accompagnements) {
+    const push = (key, patch) => {
+      const cur = accIndex.get(key) || { binomes: [], externes: [] };
+      accIndex.set(key, {
+        binomes: cur.binomes.concat(patch.binomes || []),
+        externes: cur.externes.concat(patch.externes || []),
+      });
+    };
+    accompagnements.paires.forEach(p => {
+      push(inviteeKey(p.a), { binomes: [{ autre: p.b, ensemble: p.ensemble, groupe: p.groupeB }] });
+      push(inviteeKey(p.b), { binomes: [{ autre: p.a, ensemble: p.ensemble, groupe: p.groupeA }] });
+    });
+    accompagnements.externes.forEach(e => push(inviteeKey(e.eleve), { externes: [e.proche] }));
+  }
 
   return (
     <div style={{ marginTop: 12 }}>
@@ -598,6 +625,37 @@ export default function GroupesPanel({ session }) {
           {satisfaction.nonRespected > 0 && (
             <div style={{ color: '#64748b', marginTop: 4, fontSize: 11 }}>
               Raison : groupe matin au maximum de capacité avec buffer
+            </div>
+          )}
+        </div>
+      )}
+
+      {accompagnements && (accompagnements.total > 0 || accompagnements.externes.length > 0) && (
+        <div style={{
+          padding: '10px 14px',
+          background: '#12172a',
+          border: '1px solid #1e2640',
+          borderRadius: 8,
+          marginBottom: 12,
+          fontSize: 12,
+        }}>
+          {accompagnements.total > 0 && (
+            <div style={{ color: accompagnements.separes.length === 0 ? '#10b981' : '#f59e0b', fontWeight: 600 }}>
+              🤝 Accompagnements respectés : {accompagnements.respected}/{accompagnements.total} binôme{accompagnements.total > 1 ? 's' : ''}
+            </div>
+          )}
+          {accompagnements.separes.length > 0 && (
+            <div style={{ color: '#f59e0b', marginTop: 4, fontWeight: 500 }}>
+              ⚠️ Séparés : {accompagnements.separes
+                .map(p => `${formatName(p.a.name)} (G${p.groupeA}) et ${formatName(p.b.name)} (G${p.groupeB})`)
+                .join(', ')}
+            </div>
+          )}
+          {accompagnements.externes.length > 0 && (
+            <div style={{ color: '#64748b', marginTop: 4, fontSize: 11 }}>
+              Accompagnants non retrouvés parmi les inscrits : {accompagnements.externes
+                .map(e => `${e.proche} (avec ${formatName(e.eleve.name)})`)
+                .join(', ')}
             </div>
           )}
         </div>
@@ -718,7 +776,7 @@ export default function GroupesPanel({ session }) {
                     <div className="groupe-section-label">🛵 Scooters ({scooters.length})</div>
                     {scooters.map((m, mi) => {
                       const realIdx = g.membres.indexOf(m);
-                      return renderMembre(m, gIdx, realIdx, groupes.length, moveToGroupe, toggleRole, isMobile, { history: smsHistory, onSend: openSmsModalForMember }, notif[realIdx]);
+                      return renderMembre(m, gIdx, realIdx, groupes.length, moveToGroupe, toggleRole, isMobile, { history: smsHistory, onSend: openSmsModalForMember }, notif[realIdx], accIndex.get(inviteeKey(m)));
                     })}
                   </>
                 )}
@@ -728,7 +786,7 @@ export default function GroupesPanel({ session }) {
                     <div className="groupe-section-label">🚗 Voiture ({voitures.length})</div>
                     {voitures.map((m, mi) => {
                       const realIdx = g.membres.indexOf(m);
-                      return renderMembre(m, gIdx, realIdx, groupes.length, moveToGroupe, toggleRole, isMobile, { history: smsHistory, onSend: openSmsModalForMember }, notif[realIdx]);
+                      return renderMembre(m, gIdx, realIdx, groupes.length, moveToGroupe, toggleRole, isMobile, { history: smsHistory, onSend: openSmsModalForMember }, notif[realIdx], accIndex.get(inviteeKey(m)));
                     })}
                   </>
                 )}
@@ -763,7 +821,7 @@ export default function GroupesPanel({ session }) {
   );
 }
 
-function renderMembre(m, gIdx, memIdx, nbGroupes, moveToGroupe, toggleRole, isMobile, smsCtx, notifStatus) {
+function renderMembre(m, gIdx, memIdx, nbGroupes, moveToGroupe, toggleRole, isMobile, smsCtx, notifStatus, accompagnement) {
   const nStyle = getNiveauStyle(m);
   const label = nStyle.label;
   const crType = getCreneauType(m.creneau_prefere);
@@ -771,6 +829,17 @@ function renderMembre(m, gIdx, memIdx, nbGroupes, moveToGroupe, toggleRole, isMo
   // Manual scooter override on an unverified level: shown as a warning, never blocked.
   const scooterOverride = m.role === 'scooter' && isIneligibleScooter(m);
   const isMismatched = (crType === 'matin' && gIdx !== 0) || (crType === 'aprem' && gIdx === 0);
+  const binomes = accompagnement?.binomes || [];
+  const externes = accompagnement?.externes || [];
+  // 'ensemble' | 'separe' | null — pilote le repère affiché à côté du nom.
+  const accompagneAvec = binomes.length
+    ? (binomes.every(b => b.ensemble) ? 'ensemble' : 'separe')
+    : (externes.length ? 'ensemble' : null);
+  const accompagneTitre = binomes.length
+    ? binomes.map(b => b.ensemble
+        ? `Avec ${formatName(b.autre.name)} (même groupe)`
+        : `Séparé de ${formatName(b.autre.name)} — groupe ${b.groupe}`).join(' · ')
+    : `Vient accompagné de ${externes.join(', ')} (non inscrit)`;
 
   return (
     <div
@@ -783,6 +852,16 @@ function renderMembre(m, gIdx, memIdx, nbGroupes, moveToGroupe, toggleRole, isMo
         <div className="groupe-membre-name">
           {formatName(m.name) !== '—' ? formatName(m.name) : (m.email || '—')}
           {m.modifie_manuellement && <Pencil size={10} style={{ color: '#f59e0b', flexShrink: 0 }} title="Modification manuelle" />}
+          {/* Repère d'accompagnement collé au nom : repérable d'un coup d'œil
+              sans lire la ligne du dessous, qui en donne le détail. */}
+          {accompagneAvec && (
+            <span
+              style={{ flexShrink: 0, fontSize: 11, filter: accompagneAvec === 'separe' ? 'none' : undefined }}
+              title={accompagneTitre}
+            >
+              {accompagneAvec === 'separe' ? '⚠️🤝' : '🤝'}
+            </span>
+          )}
           <span className="creneau-dot" style={{ background: dot.color }} title={dot.title} />
         </div>
         <span className="groupe-membre-niveau" style={{ color: nStyle.badgeColor }}>
@@ -824,6 +903,32 @@ function renderMembre(m, gIdx, memIdx, nbGroupes, moveToGroupe, toggleRole, isMo
           }}>
             {isMismatched && '⚠️ '}{crType === 'matin' ? 'Matin' : crType === 'aprem' ? 'Après-midi' : 'Indifférent'}
           </span>
+        )}
+        {(binomes.length > 0 || externes.length > 0) && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 3 }}>
+            {binomes.map((b, i) => (
+              <span key={`b${i}`} style={{
+                fontSize: 10, padding: '2px 7px', borderRadius: 8, fontWeight: 700,
+                display: 'inline-flex', alignItems: 'center', gap: 4, maxWidth: '100%',
+                background: b.ensemble ? 'rgba(108,99,255,0.18)' : 'rgba(245,158,11,0.18)',
+                color: b.ensemble ? '#a5b4fc' : '#f59e0b',
+              }} title={b.ensemble
+                ? `A demandé à venir avec ${formatName(b.autre.name)} — ils sont bien dans le même groupe`
+                : `A demandé à venir avec ${formatName(b.autre.name)}, actuellement dans le groupe ${b.groupe}`}>
+                {b.ensemble ? '🤝 avec' : `⚠️ séparé de`} {formatName(b.autre.name)}
+                {!b.ensemble && b.groupe != null && ` (G${b.groupe})`}
+              </span>
+            ))}
+            {externes.map((nom, i) => (
+              <span key={`e${i}`} style={{
+                fontSize: 10, padding: '2px 7px', borderRadius: 8, fontWeight: 600,
+                display: 'inline-flex', alignItems: 'center', gap: 4, maxWidth: '100%',
+                background: 'rgba(71,85,105,0.12)', color: '#94a3b8',
+              }} title="Proche déclaré sur le formulaire, non retrouvé parmi les inscrits de cette session — il ne suit pas la formation, ou le nom saisi est trop ambigu">
+                🤝 avec {nom} · non inscrit
+              </span>
+            ))}
+          </div>
         )}
       </div>
       <div className="groupe-membre-actions">
