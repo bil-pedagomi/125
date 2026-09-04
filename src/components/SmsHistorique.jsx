@@ -1,11 +1,19 @@
 import { useState, useEffect } from 'react';
-import { MessageSquare, CheckCircle, XCircle, Clock, ChevronDown, ChevronUp } from 'lucide-react';
-import { fetchSMSHistory, toE164 } from '../utils';
+import { MessageSquare, CheckCircle, XCircle, Clock } from 'lucide-react';
+import { fetchSMSHistory, formatHeureSms } from '../utils';
 
 const STATUT_STYLE = {
   sent: { color: '#10b981', bg: 'rgba(16,185,129,0.12)', label: 'Envoyé', Icon: CheckCircle },
   failed: { color: '#E24B4A', bg: 'rgba(226,75,74,0.12)', label: 'Échec', Icon: XCircle },
   pending: { color: '#f59e0b', bg: 'rgba(245,158,11,0.12)', label: 'En attente', Icon: Clock },
+};
+
+// Les relances pré-formation portent un heure_groupe en 'relance_j-1' ; les SMS
+// de groupe portent une vraie heure ('12h30'). On distingue les deux à l'œil.
+const RELANCE_LABEL = {
+  'relance_anticipation': 'Relance anticipation',
+  'relance_j-2': 'Relance J-2',
+  'relance_j-1': 'Relance J-1',
 };
 
 function formatDate(ts) {
@@ -18,21 +26,37 @@ function formatDate(ts) {
 export default function SmsHistorique({ eventUuid }) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [expanded, setExpanded] = useState(null);
+  const [erreur, setErreur] = useState(null);
 
   useEffect(() => {
     if (!eventUuid) return;
     let cancelled = false;
     setLoading(true);
+    setErreur(null);
     fetchSMSHistory(eventUuid)
       .then(data => { if (!cancelled) setRows(data); })
-      .catch(e => console.error('Erreur historique SMS:', e))
+      .catch(e => {
+        console.error('Erreur historique SMS:', e);
+        // Un historique vide et un historique illisible ne veulent pas dire la
+        // même chose : le second doit se voir, sinon on croit qu'aucun SMS
+        // n'est parti alors qu'on n'en sait rien (cas du 01/09 au 04/09).
+        if (!cancelled) setErreur(e.message || String(e));
+      })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [eventUuid]);
 
   if (loading) {
     return <div style={{ padding: 12, color: '#64748b', fontSize: 12 }}>Chargement historique SMS...</div>;
+  }
+
+  if (erreur) {
+    return (
+      <div style={{ padding: 12, fontSize: 12, color: '#E24B4A', display: 'flex', alignItems: 'center', gap: 6 }}>
+        <XCircle size={14} />
+        Historique SMS indisponible — {erreur}
+      </div>
+    );
   }
 
   if (rows.length === 0) {
@@ -64,68 +88,39 @@ export default function SmsHistorique({ eventUuid }) {
       }}>
         {rows.map((r, i) => {
           const s = STATUT_STYLE[r.statut] || STATUT_STYLE.pending;
-          const isExpanded = expanded === i;
+          const relance = RELANCE_LABEL[r.heure_groupe];
           return (
-            <div key={r.id || i}>
-              <div
-                onClick={() => setExpanded(isExpanded ? null : i)}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 8,
-                  padding: '8px 12px', cursor: 'pointer',
-                  borderBottom: i < rows.length - 1 ? '1px solid #1e2640' : 'none',
-                  transition: 'background 0.12s',
-                }}
-                onMouseEnter={e => e.currentTarget.style.background = '#1e2640'}
-                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-              >
-                <s.Icon size={12} style={{ color: s.color, flexShrink: 0 }} />
+            <div
+              key={r.id || i}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 8,
+                padding: '8px 12px',
+                borderBottom: i < rows.length - 1 ? '1px solid #1e2640' : 'none',
+              }}
+            >
+              <s.Icon size={12} style={{ color: s.color, flexShrink: 0 }} />
 
-                <span style={{ fontSize: 12, color: '#e2e8f0', fontWeight: 500, minWidth: 70 }}>
-                  {r.prenom || '—'}
+              <span style={{ fontSize: 12, color: '#e2e8f0', fontWeight: 500, minWidth: 90 }}>
+                {r.prenom || '—'}
+              </span>
+
+              <span style={{ fontSize: 11, color: '#64748b', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {relance || (r.heure_groupe ? `Convocation ${formatHeureSms(r.heure_groupe.replace('h', ':'))}` : '')}
+              </span>
+
+              {r.groupe_numero && (
+                <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 8, background: 'rgba(108,99,255,0.15)', color: '#a5b4fc', fontWeight: 600 }}>
+                  G{r.groupe_numero}
                 </span>
-
-                <span style={{ fontSize: 11, color: '#64748b', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {r.telephone || '—'}
-                </span>
-
-                {r.groupe_numero && (
-                  <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 8, background: 'rgba(108,99,255,0.15)', color: '#a5b4fc', fontWeight: 600 }}>
-                    G{r.groupe_numero}
-                  </span>
-                )}
-
-                <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 8, background: s.bg, color: s.color, fontWeight: 600 }}>
-                  {s.label}
-                </span>
-
-                <span style={{ fontSize: 10, color: '#475569', whiteSpace: 'nowrap' }}>
-                  {formatDate(r.sent_at || r.created_at)}
-                </span>
-
-                {isExpanded ? <ChevronUp size={12} style={{ color: '#475569' }} /> : <ChevronDown size={12} style={{ color: '#475569' }} />}
-              </div>
-
-              {isExpanded && (
-                <div style={{
-                  padding: '8px 12px 12px 32px',
-                  borderBottom: i < rows.length - 1 ? '1px solid #1e2640' : 'none',
-                  background: '#0e1222',
-                }}>
-                  <div style={{ fontSize: 12, color: '#cbd5e1', lineHeight: 1.6, whiteSpace: 'pre-wrap', fontFamily: "'JetBrains Mono', monospace" }}>
-                    {r.message || '(pas de contenu)'}
-                  </div>
-                  {r.erreur_message && (
-                    <div style={{ fontSize: 11, color: '#E24B4A', marginTop: 6 }}>
-                      Erreur : {r.erreur_message}
-                    </div>
-                  )}
-                  {r.ringover_message_id && (
-                    <div style={{ fontSize: 10, color: '#475569', marginTop: 4 }}>
-                      ID Ringover : {r.ringover_message_id}
-                    </div>
-                  )}
-                </div>
               )}
+
+              <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 8, background: s.bg, color: s.color, fontWeight: 600 }}>
+                {s.label}
+              </span>
+
+              <span style={{ fontSize: 10, color: '#475569', whiteSpace: 'nowrap' }}>
+                {formatDate(r.sent_at || r.created_at)}
+              </span>
             </div>
           );
         })}

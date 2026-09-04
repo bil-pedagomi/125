@@ -51,6 +51,25 @@ function getValidationErrors(groupes) {
   return errors;
 }
 
+// Historique regroupé par élève, tel que le consomment les boutons « déjà
+// envoyé » (carte élève et modale d'envoi).
+function indexerParEleve(rows) {
+  const map = {};
+  rows.forEach(r => {
+    const key = String(r.invitee_uuid ?? '');
+    if (!key) return;
+    if (!map[key]) map[key] = [];
+    map[key].push(r);
+  });
+  return map;
+}
+
+// Clé de rapprochement élève ↔ SMS. Identique côté envoi (l'edge function
+// écrit invitee_uuid) et côté lecture.
+function smsKey(m) {
+  return String(m?.invitee_uuid ?? m?.id ?? m?.email ?? '');
+}
+
 // An sms_queue.heure_groupe that is an actual hour ("10h", "14h30"), i.e. a
 // cockpit group reminder — excludes the relance_* pre-formation SMS.
 const HEURE_GROUPE_RE = /^\d{1,2}h\d{0,2}$/;
@@ -60,18 +79,16 @@ const HEURE_GROUPE_RE = /^\d{1,2}h\d{0,2}$/;
 // - 'prevenu'     : a 'sent' SMS exists whose sent hour === the group's current hour
 // - 're-prevenir' : a 'sent' SMS exists but for a DIFFERENT hour (horaire changed since)
 // - 'non'         : no 'sent' group SMS for this member
-// Match by invitee_uuid (primary) then E164 phone (fallback). smsRows is already
-// scoped to this event by fetchSMSHistory.
+// Rapprochement par invitee_uuid. Le repli sur le téléphone a disparu avec le
+// passage à la vue v_sms_queue_cockpit, qui n'expose plus les numéros : il
+// était de toute façon inutile, les SMS de groupe portent tous un invitee_uuid.
+// smsRows is already scoped to this event by fetchSMSHistory.
 function memberNotifStatus(membre, currentHeure, smsRows) {
-  const key = String(membre.invitee_uuid ?? membre.id ?? membre.email ?? '');
-  const phone = toE164(membre.phone);
+  const key = smsKey(membre);
   const rows = smsRows.filter(r =>
     r.statut === 'sent' &&
     HEURE_GROUPE_RE.test(String(r.heure_groupe || '')) &&
-    (
-      (r.invitee_uuid != null && String(r.invitee_uuid) === key) ||
-      (phone && toE164(r.telephone) === phone)
-    )
+    r.invitee_uuid != null && String(r.invitee_uuid) === key
   );
   if (rows.length === 0) return 'non';
   rows.sort((a, b) => new Date(b.sent_at || b.created_at || 0) - new Date(a.sent_at || a.created_at || 0));
@@ -167,13 +184,7 @@ export default function GroupesPanel({ session }) {
     fetchSMSHistory(eventUuid)
       .then(rows => {
         if (cancelled) return;
-        const map = {};
-        rows.forEach(r => {
-          const key = toE164(r.telephone) || r.telephone;
-          if (!map[key]) map[key] = [];
-          map[key].push(r);
-        });
-        setSmsHistory(map);
+        setSmsHistory(indexerParEleve(rows));
         setSmsRows(rows);
       })
       .catch(e => console.error('Erreur chargement historique SMS:', e));
@@ -183,13 +194,7 @@ export default function GroupesPanel({ session }) {
   const refreshSmsHistory = useCallback(async () => {
     try {
       const rows = await fetchSMSHistory(eventUuid);
-      const map = {};
-      rows.forEach(r => {
-        const key = toE164(r.telephone) || r.telephone;
-        if (!map[key]) map[key] = [];
-        map[key].push(r);
-      });
-      setSmsHistory(map);
+      setSmsHistory(indexerParEleve(rows));
       setSmsRows(rows);
     } catch (e) {
       console.error('Erreur refresh historique SMS:', e);
@@ -222,7 +227,8 @@ export default function GroupesPanel({ session }) {
       setSmsHistory(prev => {
         const map = { ...prev };
         optimistic.forEach(r => {
-          const key = toE164(r.telephone) || r.telephone;
+          const key = String(r.invitee_uuid ?? '');
+          if (!key) return;
           map[key] = [r, ...(map[key] || [])];
         });
         return map;
@@ -933,8 +939,7 @@ function renderMembre(m, gIdx, memIdx, nbGroupes, moveToGroupe, toggleRole, isMo
       </div>
       <div className="groupe-membre-actions">
         {smsCtx && (() => {
-          const phoneKey = toE164(m.phone);
-          const hasSent = (phoneKey && smsCtx.history[phoneKey]?.some(s => s.statut === 'sent')) || false;
+          const hasSent = smsCtx.history[smsKey(m)]?.some(s => s.statut === 'sent') || false;
           const validPhone = m.phone && toE164(m.phone);
           return (
             <button

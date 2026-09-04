@@ -211,8 +211,9 @@ export default function SmsModal({ open, onClose, groupe, session, config, smsHi
               const phone = toE164(m.phone);
               const hasPhone = !!phone;
               const fix = hasPhone && isFixe(m.phone);
-              const phoneKey = toE164(m.phone);
-              const hasSent = phoneKey && smsHistory?.[phoneKey]?.some(s => s.statut === 'sent');
+              // Historique indexé par élève (la vue de suivi n'expose plus les numéros).
+              const histKey = String(m.invitee_uuid ?? m.id ?? m.email ?? '');
+              const hasSent = smsHistory?.[histKey]?.some(s => s.statut === 'sent');
               return (
                 <div key={m.email} className={`sms-dest-row ${!hasPhone ? 'disabled' : ''}`}>
                   <label>
