@@ -647,8 +647,12 @@ export async function sendSMSViaEdgeFunction({ calendly_event_uuid, groupe_numer
   return res.json();
 }
 
+// Suivi d'envoi des SMS. On lit la VUE v_sms_queue_cockpit, pas sms_queue :
+// la table porte les numéros et le texte des messages, et n'est plus ouverte à
+// la clé anon (publique) depuis le durcissement du 01/09. La vue expose le
+// strict nécessaire — qui a été prévenu, pour quel horaire, quand.
 export async function fetchSMSHistory(eventUuid) {
-  const url = `${SUPABASE_URL}/rest/v1/sms_queue?calendly_event_uuid=eq.${encodeURIComponent(eventUuid)}&order=created_at.desc`;
+  const url = `${SUPABASE_URL}/rest/v1/v_sms_queue_cockpit?calendly_event_uuid=eq.${encodeURIComponent(eventUuid)}&order=created_at.desc`;
   const res = await fetch(url, { headers: SB_HEADERS });
   if (!res.ok) throw new Error(`Erreur fetch SMS history: ${res.status}`);
   return res.json();
