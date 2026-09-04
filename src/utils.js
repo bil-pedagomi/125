@@ -294,10 +294,13 @@ export function buildAffinites(invitees) {
   list.forEach(c => {
     if (c.inv.avec_un_proche !== 'Oui') return;
     splitAccompagnants(c.inv.accompagnant_nom_complet).forEach(fragment => {
-      // Certains se renomment eux-mêmes dans le champ : à ignorer, ce n'est
-      // ni un binôme ni un proche extérieur.
-      if (matchAccompagnant(fragment, [c]) === c) return;
-      const autre = matchAccompagnant(fragment, list.filter(x => x.key !== c.key));
+      // Le déclarant fait partie des candidats : c'est le seul moyen de
+      // distinguer « je me suis renommé moi-même » d'un frère ou d'une sœur
+      // qui porte le même nom de famille. Comparer le fragment au seul
+      // déclarant reviendrait à confondre « Tom Ciaravino » avec « Matteo
+      // Ciaravino » — le patronyme suffirait à conclure à tort.
+      const autre = matchAccompagnant(fragment, list);
+      if (autre && autre.key === c.key) return; // auto-référence : sans objet
       if (!autre) {
         // Proche non retrouvé parmi les inscrits : soit il ne suit pas la
         // formation, soit le nom saisi est trop ambigu pour trancher.

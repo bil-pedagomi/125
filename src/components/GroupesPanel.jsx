@@ -829,6 +829,17 @@ function renderMembre(m, gIdx, memIdx, nbGroupes, moveToGroupe, toggleRole, isMo
   // Manual scooter override on an unverified level: shown as a warning, never blocked.
   const scooterOverride = m.role === 'scooter' && isIneligibleScooter(m);
   const isMismatched = (crType === 'matin' && gIdx !== 0) || (crType === 'aprem' && gIdx === 0);
+  const binomes = accompagnement?.binomes || [];
+  const externes = accompagnement?.externes || [];
+  // 'ensemble' | 'separe' | null — pilote le repère affiché à côté du nom.
+  const accompagneAvec = binomes.length
+    ? (binomes.every(b => b.ensemble) ? 'ensemble' : 'separe')
+    : (externes.length ? 'ensemble' : null);
+  const accompagneTitre = binomes.length
+    ? binomes.map(b => b.ensemble
+        ? `Avec ${formatName(b.autre.name)} (même groupe)`
+        : `Séparé de ${formatName(b.autre.name)} — groupe ${b.groupe}`).join(' · ')
+    : `Vient accompagné de ${externes.join(', ')} (non inscrit)`;
 
   return (
     <div
@@ -841,6 +852,16 @@ function renderMembre(m, gIdx, memIdx, nbGroupes, moveToGroupe, toggleRole, isMo
         <div className="groupe-membre-name">
           {formatName(m.name) !== '—' ? formatName(m.name) : (m.email || '—')}
           {m.modifie_manuellement && <Pencil size={10} style={{ color: '#f59e0b', flexShrink: 0 }} title="Modification manuelle" />}
+          {/* Repère d'accompagnement collé au nom : repérable d'un coup d'œil
+              sans lire la ligne du dessous, qui en donne le détail. */}
+          {accompagneAvec && (
+            <span
+              style={{ flexShrink: 0, fontSize: 11, filter: accompagneAvec === 'separe' ? 'none' : undefined }}
+              title={accompagneTitre}
+            >
+              {accompagneAvec === 'separe' ? '⚠️🤝' : '🤝'}
+            </span>
+          )}
           <span className="creneau-dot" style={{ background: dot.color }} title={dot.title} />
         </div>
         <span className="groupe-membre-niveau" style={{ color: nStyle.badgeColor }}>
@@ -873,27 +894,6 @@ function renderMembre(m, gIdx, memIdx, nbGroupes, moveToGroupe, toggleRole, isMo
             ⚠️ à re-prévenir
           </span>
         )}
-        {accompagnement?.binomes.map((b, i) => (
-          <span key={`b${i}`} style={{
-            fontSize: 9, padding: '1px 6px', borderRadius: 8, fontWeight: 700, marginTop: 2, marginLeft: 6,
-            display: 'inline-flex', alignItems: 'center', gap: 3,
-            background: b.ensemble ? 'rgba(108,99,255,0.15)' : 'rgba(245,158,11,0.15)',
-            color: b.ensemble ? '#a5b4fc' : '#f59e0b',
-          }} title={b.ensemble
-            ? `A demandé à venir avec ${formatName(b.autre.name)} — même groupe`
-            : `A demandé à venir avec ${formatName(b.autre.name)}, actuellement dans le groupe ${b.groupe}`}>
-            {b.ensemble ? '🤝' : '⚠️'} {b.ensemble ? 'avec' : 'séparé de'} {formatName(b.autre.name)}
-          </span>
-        ))}
-        {accompagnement?.externes.map((nom, i) => (
-          <span key={`e${i}`} style={{
-            fontSize: 9, padding: '1px 6px', borderRadius: 8, fontWeight: 600, marginTop: 2, marginLeft: 6,
-            display: 'inline-flex', alignItems: 'center', gap: 3,
-            background: 'rgba(71,85,105,0.1)', color: '#64748b',
-          }} title="Proche déclaré sur le formulaire, non retrouvé parmi les inscrits de cette session">
-            🤝 {nom} (non inscrit)
-          </span>
-        ))}
         {m.creneau_prefere && (
           <span style={{
             fontSize: 9, padding: '1px 6px', borderRadius: 8, fontWeight: 600, marginTop: 2,
@@ -903,6 +903,32 @@ function renderMembre(m, gIdx, memIdx, nbGroupes, moveToGroupe, toggleRole, isMo
           }}>
             {isMismatched && '⚠️ '}{crType === 'matin' ? 'Matin' : crType === 'aprem' ? 'Après-midi' : 'Indifférent'}
           </span>
+        )}
+        {(binomes.length > 0 || externes.length > 0) && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 3 }}>
+            {binomes.map((b, i) => (
+              <span key={`b${i}`} style={{
+                fontSize: 10, padding: '2px 7px', borderRadius: 8, fontWeight: 700,
+                display: 'inline-flex', alignItems: 'center', gap: 4, maxWidth: '100%',
+                background: b.ensemble ? 'rgba(108,99,255,0.18)' : 'rgba(245,158,11,0.18)',
+                color: b.ensemble ? '#a5b4fc' : '#f59e0b',
+              }} title={b.ensemble
+                ? `A demandé à venir avec ${formatName(b.autre.name)} — ils sont bien dans le même groupe`
+                : `A demandé à venir avec ${formatName(b.autre.name)}, actuellement dans le groupe ${b.groupe}`}>
+                {b.ensemble ? '🤝 avec' : `⚠️ séparé de`} {formatName(b.autre.name)}
+                {!b.ensemble && b.groupe != null && ` (G${b.groupe})`}
+              </span>
+            ))}
+            {externes.map((nom, i) => (
+              <span key={`e${i}`} style={{
+                fontSize: 10, padding: '2px 7px', borderRadius: 8, fontWeight: 600,
+                display: 'inline-flex', alignItems: 'center', gap: 4, maxWidth: '100%',
+                background: 'rgba(71,85,105,0.12)', color: '#94a3b8',
+              }} title="Proche déclaré sur le formulaire, non retrouvé parmi les inscrits de cette session — il ne suit pas la formation, ou le nom saisi est trop ambigu">
+                🤝 avec {nom} · non inscrit
+              </span>
+            ))}
+          </div>
         )}
       </div>
       <div className="groupe-membre-actions">
