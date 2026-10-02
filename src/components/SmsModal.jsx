@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { X, Send, Save, Loader, Check, AlertTriangle } from 'lucide-react';
-import { toE164, genererMessageFromTemplate, sendSMSViaEdgeFunction, saveSmsTemplate, formatHeureSms } from '../utils';
+import { toE164, genererMessageFromTemplate, sendSMSViaEdgeFunction, saveSmsTemplate, formatHeureSms, inviteeKey } from '../utils';
 
 // Canonical SMS template key. The two legacy per-group templates are unified
 // into this single hour-agnostic base ({horaire} injects the real hour), so
@@ -87,12 +87,12 @@ export default function SmsModal({ open, onClose, groupe, session, config, smsHi
     setSendResult(null);
     setSaved(false);
     const sel = {};
-    membres.forEach(m => { sel[m.email] = !!(m.phone && toE164(m.phone)); });
+    membres.forEach(m => { sel[inviteeKey(m)] = !!(m.phone && toE164(m.phone)); });
     setSelected(sel);
   }, [open, groupeNum, config, membres, horaire]);
 
   const checkedMembers = useMemo(
-    () => membres.filter(m => selected[m.email] && m.phone && toE164(m.phone)),
+    () => membres.filter(m => selected[inviteeKey(m)] && m.phone && toE164(m.phone)),
     [membres, selected]
   );
 
@@ -112,8 +112,8 @@ export default function SmsModal({ open, onClose, groupe, session, config, smsHi
   const smsCount = countSms(charCount);
   const counterClass = smsCount > 3 ? 'danger' : smsCount > 1 ? 'warn' : '';
 
-  const handleToggle = (email) => {
-    setSelected(prev => ({ ...prev, [email]: !prev[email] }));
+  const handleToggle = (key) => {
+    setSelected(prev => ({ ...prev, [key]: !prev[key] }));
   };
 
   const handleSaveTemplate = async () => {
@@ -215,12 +215,12 @@ export default function SmsModal({ open, onClose, groupe, session, config, smsHi
               const histKey = String(m.invitee_uuid ?? m.id ?? m.email ?? '');
               const hasSent = smsHistory?.[histKey]?.some(s => s.statut === 'sent');
               return (
-                <div key={m.email} className={`sms-dest-row ${!hasPhone ? 'disabled' : ''}`}>
+                <div key={inviteeKey(m)} className={`sms-dest-row ${!hasPhone ? 'disabled' : ''}`}>
                   <label>
                     <input
                       type="checkbox"
-                      checked={!!selected[m.email]}
-                      onChange={() => handleToggle(m.email)}
+                      checked={!!selected[inviteeKey(m)]}
+                      onChange={() => handleToggle(inviteeKey(m))}
                       disabled={!hasPhone}
                       style={{ accentColor: '#6c63ff' }}
                     />

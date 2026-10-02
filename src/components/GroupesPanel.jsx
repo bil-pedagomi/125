@@ -261,8 +261,27 @@ export default function GroupesPanel({ session }) {
               membres: [],
             };
           });
+          // Rattache chaque ligne sauvegardée à SON élève par invitee_uuid.
+          // L'email ne suffit pas : un même email peut servir à plusieurs
+          // inscriptions (ex. une personne qui réserve pour elle et un proche).
+          // Rapprocher par email faisait afficher le premier inscrit à la place
+          // de l'autre, puis l'auto-réparation le rajoutait en doublon.
+          // Repli sur l'email uniquement pour les lignes héritées sans uuid
+          // exploitable, et seulement si cet email désigne un seul élève.
+          const byKey = new Map(invitees.map(i => [inviteeKey(i), i]));
+          const resolveInvitee = (r) => {
+            const hit = byKey.get(inviteeKey(r));
+            if (hit) return hit;
+            const sameEmail = invitees.filter(i => i.email && i.email === r.email);
+            return sameEmail.length === 1 ? sameEmail[0] : null;
+          };
+          const placed = new Set();
           // Attach members; synthesize a group from legacy rows lacking metadata
           rows.forEach(r => {
+            const inv = resolveInvitee(r) || { invitee_uuid: r.invitee_uuid, name: r.email, email: r.email };
+            const key = inviteeKey(inv);
+            if (placed.has(key)) return; // jamais deux fois le même élève
+            placed.add(key);
             if (!groupeMap[r.groupe_numero]) {
               groupeMap[r.groupe_numero] = {
                 numero: r.groupe_numero,
@@ -271,7 +290,6 @@ export default function GroupesPanel({ session }) {
                 membres: [],
               };
             }
-            const inv = invitees.find(i => i.email === r.email) || { name: r.email, email: r.email };
             groupeMap[r.groupe_numero].membres.push({
               ...inv,
               role: r.role,
@@ -849,7 +867,9 @@ function renderMembre(m, gIdx, memIdx, nbGroupes, moveToGroupe, toggleRole, isMo
 
   return (
     <div
-      key={m.email || m.name}
+      // Clé unique par élève : l'email peut être partagé par deux inscrits, et
+      // une clé React en double fait dupliquer/fantômer des lignes à l'écran.
+      key={inviteeKey(m)}
       className="groupe-membre"
       style={{ borderLeft: `3px solid ${nStyle.borderColor}` }}
     >
