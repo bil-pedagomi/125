@@ -144,7 +144,7 @@ function HBarChart({ title, data, color = '#8b5cf6' }) {
 function Stats({ data }) {
   const formulaires = data.raw?.formulaires || [];
   const sessions = data.sessions || [];
-  const { eleves, motifs: globalMotifs, kpis, raw } = data;
+  const { motifs: globalMotifs, raw } = data;
   const caComparaison = raw?.ca_comparaison || [];
 
   // ─── Vue d'ensemble (ex-Dashboard) ───

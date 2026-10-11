@@ -157,7 +157,7 @@ export default function GroupesPanel({ session }) {
   const [saving, setSaving] = useState(false);
   const [lastSavedAt, setLastSavedAt] = useState(null);
   const [saveError, setSaveError] = useState(null);
-  const [nowTick, setNowTick] = useState(Date.now());
+  const [nowTick, setNowTick] = useState(() => Date.now());
   const [config, setConfig] = useState(null);
   const [smsHistory, setSmsHistory] = useState({});
   const [smsRows, setSmsRows] = useState([]); // raw sms_queue rows (this event) for notif-status derivation
@@ -427,6 +427,9 @@ export default function GroupesPanel({ session }) {
     if (!groupes || !config) return;
     if (manquants.length === 0) return;
     autoFixedRef.current = true;
+    // Volontaire et unique (garde par ref) : la correction doit aussi être
+    // persistée, ce qui ne peut pas se faire pendant le rendu.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     ajouterManquants();
   }, [groupes, config, manquants, ajouterManquants]);
 
@@ -798,7 +801,7 @@ export default function GroupesPanel({ session }) {
                 {scooters.length > 0 && (
                   <>
                     <div className="groupe-section-label">🛵 Scooters ({scooters.length})</div>
-                    {scooters.map((m, mi) => {
+                    {scooters.map(m => {
                       const realIdx = g.membres.indexOf(m);
                       return renderMembre(m, gIdx, realIdx, groupes.length, moveToGroupe, toggleRole, isMobile, { history: smsHistory, onSend: openSmsModalForMember }, notif[realIdx], accIndex.get(inviteeKey(m)));
                     })}
@@ -808,7 +811,7 @@ export default function GroupesPanel({ session }) {
                 {voitures.length > 0 && (
                   <>
                     <div className="groupe-section-label">🚗 Voiture ({voitures.length})</div>
-                    {voitures.map((m, mi) => {
+                    {voitures.map(m => {
                       const realIdx = g.membres.indexOf(m);
                       return renderMembre(m, gIdx, realIdx, groupes.length, moveToGroupe, toggleRole, isMobile, { history: smsHistory, onSend: openSmsModalForMember }, notif[realIdx], accIndex.get(inviteeKey(m)));
                     })}

@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import { CalendarDays, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, FileCheck, PhoneCall, Users, Euro, UsersRound, UserCog } from 'lucide-react';
-import { formatDateShort, formatDate, getMonthKey, getMonthLabel, getSessionType, getGroupeType125, getNiveauStyle, formatName, fetchSessionsMeta, upsertSessionMeta } from '../utils';
+import { formatDateShort, getMonthKey, getMonthLabel, getSessionType, getGroupeType125, getNiveauStyle, formatName, fetchSessionsMeta, upsertSessionMeta } from '../utils';
 import FicheEleve from '../components/FicheEleve';
 import GroupesPanel from '../components/GroupesPanel';
 import Avatar from '../components/Avatar';
@@ -47,7 +47,7 @@ const TABLE_CSS = `
 }
 `;
 
-function InviteesTable({ invitees, isMobile }) {
+function InviteesTable({ invitees }) {
   const [sortKey, setSortKey] = useState('niveau');
   const [sortDir, setSortDir] = useState('asc');
   const [ficheId, setFicheId] = useState(null);
@@ -396,7 +396,7 @@ function Agenda({ data }) {
     const niveaux = { 'Débutant': 0, 'Intermédiaire': 0, 'Avancé': 0, 'Expert': 0 };
     withForm.forEach(i => {
       const n = i.niveau_scooter;
-      if (n && niveaux.hasOwnProperty(n)) niveaux[n]++;
+      if (n && Object.hasOwn(niveaux, n)) niveaux[n]++;
     });
     const totalNiveaux = Object.values(niveaux).reduce((a, b) => a + b, 0);
     return { totalEleves, ca, pctAppele, pctForm, nbFormRempli, pctDejaConduit, niveaux, totalNiveaux };
@@ -517,7 +517,7 @@ function Agenda({ data }) {
         {displayInvitees.length > 0 ? (
           detailView === 'groupes'
             ? <GroupesPanel session={s} />
-            : <InviteesTable invitees={displayInvitees} isMobile={isMobile} />
+            : <InviteesTable invitees={displayInvitees} />
         ) : (
           <p className="empty-state" style={{ padding: '0.75rem 0' }}>
             Aucun élève inscrit (backfill en cours)

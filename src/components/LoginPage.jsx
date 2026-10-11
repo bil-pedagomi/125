@@ -1,21 +1,31 @@
 import { useState } from 'react';
-import { LogIn } from 'lucide-react';
+import { LogIn, Loader } from 'lucide-react';
+import { supabase } from '../supabase';
 
-const VALID_USER = 'pedagomi';
-const VALID_PASS = 'Ped@gomi125!';
-
-export default function LoginPage({ onLogin }) {
-  const [username, setUsername] = useState('');
+// Connexion par compte Supabase (Auth). Le contrôle d'accès se fait côté
+// serveur : les données ne sont lisibles qu'avec le jeton d'un compte autorisé
+// (f125_app_users, ou admin de la paie). Un compte valide mais non autorisé
+// est connecté, puis reçoit « Accès au cockpit 125 refusé » de dashboard-125.
+export default function LoginPage() {
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState(false);
+  const [error, setError] = useState(null);
+  const [loading, setLoading] = useState(false);
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    if (username === VALID_USER && password === VALID_PASS) {
-      onLogin();
-    } else {
-      setError(true);
+    setLoading(true);
+    setError(null);
+    const { error: authError } = await supabase.auth.signInWithPassword({
+      email: email.trim(),
+      password,
+    });
+    if (authError) {
+      setError('Email ou mot de passe incorrect');
+      setLoading(false);
     }
+    // En cas de succès, App bascule via onAuthStateChange (ce composant est
+    // alors démonté).
   };
 
   return (
@@ -57,12 +67,13 @@ export default function LoginPage({ onLogin }) {
 
         <div style={{ marginBottom: 16 }}>
           <label style={{ display: 'block', fontSize: 12, color: '#94a3b8', marginBottom: 6, fontWeight: 600 }}>
-            Identifiant
+            Email
           </label>
           <input
-            type="text"
-            value={username}
-            onChange={e => { setUsername(e.target.value); setError(false); }}
+            type="email"
+            required
+            value={email}
+            onChange={e => { setEmail(e.target.value); setError(null); }}
             autoComplete="username"
             style={{
               width: '100%',
@@ -85,7 +96,8 @@ export default function LoginPage({ onLogin }) {
           <input
             type="password"
             value={password}
-            onChange={e => { setPassword(e.target.value); setError(false); }}
+            required
+            onChange={e => { setPassword(e.target.value); setError(null); }}
             autoComplete="current-password"
             style={{
               width: '100%',
@@ -112,11 +124,11 @@ export default function LoginPage({ onLogin }) {
             marginBottom: 16,
             textAlign: 'center',
           }}>
-            Identifiant ou mot de passe incorrect
+            {error}
           </div>
         )}
 
-        <button type="submit" style={{
+        <button type="submit" disabled={loading} style={{
           width: '100%',
           padding: '12px 0',
           fontSize: 15,
@@ -125,13 +137,14 @@ export default function LoginPage({ onLogin }) {
           background: '#6C63FF',
           border: 'none',
           borderRadius: 10,
-          cursor: 'pointer',
+          cursor: loading ? 'wait' : 'pointer',
+          opacity: loading ? 0.7 : 1,
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
           gap: 8,
         }}>
-          <LogIn size={16} />
+          {loading ? <Loader size={16} /> : <LogIn size={16} />}
           Se connecter
         </button>
       </form>

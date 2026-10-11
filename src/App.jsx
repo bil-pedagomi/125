@@ -1,12 +1,14 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, lazy, Suspense } from 'react';
 import { CalendarDays, Users, BarChart3, Target, LogOut } from 'lucide-react';
 import './App.css';
 import { fetchDashboardData, consolidateData } from './utils';
 import Agenda from './views/Agenda';
 import Eleves from './views/Eleves';
-import Stats from './views/Stats';
-import Conversions from './views/Conversions';
+// Stats et Conversions embarquent recharts (~400 kB) : chargés à la demande.
+const Stats = lazy(() => import('./views/Stats'));
+const Conversions = lazy(() => import('./views/Conversions'));
 import LoginPage from './components/LoginPage';
+import { supabase } from './supabase';
 
 const TABS = [
   { id: 'agenda', label: 'Agenda', icon: CalendarDays },
@@ -16,23 +18,42 @@ const TABS = [
 ];
 
 function App() {
-  const [loggedIn, setLoggedIn] = useState(false);
+  // undefined = session pas encore lue ; null = déconnecté.
+  const [session, setSession] = useState(undefined);
   const [tab, setTab] = useState('agenda');
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    if (!loggedIn) return;
-    setLoading(true);
+    supabase.auth.getSession().then(({ data: { session: s } }) => setSession(s));
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, s) => setSession(s));
+    return () => subscription.unsubscribe();
+  }, []);
+
+  // On ne recharge que lorsque l'UTILISATEUR change, pas à chaque
+  // rafraîchissement du jeton (toutes les heures).
+  const userId = session?.user?.id;
+  useEffect(() => {
+    if (!userId) return;
     fetchDashboardData()
       .then(raw => setData(consolidateData(raw)))
       .catch(err => setError(err.message))
       .finally(() => setLoading(false));
-  }, [loggedIn]);
+  }, [userId]);
 
-  if (!loggedIn) {
-    return <LoginPage onLogin={() => setLoggedIn(true)} />;
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    setData(null);
+    setError(null);
+    setLoading(true);
+    setTab('agenda');
+  };
+
+  if (session === undefined) return null;
+
+  if (!session) {
+    return <LoginPage />;
   }
 
   if (loading) {
@@ -60,7 +81,14 @@ function App() {
             <h1>Pedagomi <span>125</span></h1>
           </div>
         </header>
-        <div className="error-box">{error}</div>
+        <div className="error-box">
+          {error}
+          <div style={{ marginTop: 12 }}>
+            <button className="tab logout-btn" onClick={handleLogout}>
+              <LogOut size={16} /> Se déconnecter
+            </button>
+          </div>
+        </div>
       </div>
     );
   }
@@ -85,7 +113,7 @@ function App() {
           ))}
           <button
             className="tab logout-btn"
-            onClick={() => { setLoggedIn(false); setData(null); setTab('agenda'); }}
+            onClick={handleLogout}
             title="Déconnexion"
           >
             <LogOut size={16} />
@@ -96,8 +124,10 @@ function App() {
       <main className="main">
         {tab === 'agenda' && <Agenda data={data} />}
         {tab === 'eleves' && <Eleves data={data} />}
-        {tab === 'stats' && <Stats data={data} />}
-        {tab === 'conversions' && <Conversions />}
+        <Suspense fallback={<div className="loading"><div className="spinner" /></div>}>
+          {tab === 'stats' && <Stats data={data} />}
+          {tab === 'conversions' && <Conversions />}
+        </Suspense>
       </main>
     </div>
   );

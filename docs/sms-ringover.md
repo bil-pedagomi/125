@@ -4,9 +4,11 @@
 
 ```
 Interface Groupes → SmsModal.jsx → sendSMSViaEdgeFunction()
-  → POST /functions/v1/send-sms-ringover (verify_jwt: true)
-    → INSERT sms_queue (statut: pending)
-    → POST Ringover API /v2/sms
+  → POST /functions/v1/send-sms-ringover (jeton de l'utilisateur connecté)
+    → contrôle : compte autorisé (f125_can_access), destinataires inscrits
+      à la session, numéro = celui enregistré dans calendly_invitees
+    → INSERT sms_queue (statut: pending, envoye_par: <user id>)
+    → POST Ringover API /v2/push/sms
     → UPDATE sms_queue (statut: sent/failed)
     → INSERT sync_log_unifie (source: ringover_sms)
   ← { sent: N, failed: N, results }
@@ -40,18 +42,18 @@ ON CONFLICT (cle) DO NOTHING;
 
 ### 3. RLS sur `sms_queue`
 
-```sql
-ALTER TABLE sms_queue ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "anon_read_sms_queue" ON sms_queue FOR SELECT USING (true);
-```
+`sms_queue` contient numéros et contenus des messages : aucune policy `anon`.
+Les comptes du cockpit la lisent via `cockpit_125_read` ; le front passe par
+la vue `v_sms_queue_cockpit` (sans téléphone ni message).
 
 ### 4. Déployer l'Edge Function
 
 ```bash
-supabase functions deploy send-sms-ringover --project-ref yuolnqyejxtfpxntflle
+supabase functions deploy send-sms-ringover --no-verify-jwt --project-ref yuolnqyejxtfpxntflle
 ```
 
-Configurer `verify_jwt: true` dans le dashboard Supabase (Settings > Edge Functions).
+`verify_jwt` ne protège rien ici (la clé anon, publique, le passe) : le
+contrôle d'accès est fait dans la fonction (`_shared/auth.ts`).
 
 ### 5. Secrets Supabase requis
 
@@ -65,7 +67,10 @@ Les templates sont stockés dans `f125_config` avec les clés :
 - `sms_template_groupe_2` — message pour le créneau 14h
 - `sms_template_pre_formation` — message envoyé J-2/J-3
 
-Variables disponibles : `{prenom}`, `{horaire}`, `{vehicule}`
+Variables disponibles : `{prenom}`, `{date}`, `{horaire}`, `{vehicule}`
+
+Le front n'utilise plus qu'un modèle, `sms_template_groupe_1` : l'heure réelle
+du groupe est injectée par `{horaire}`, la date par `{date}`.
 
 Pour modifier un template : ouvrir le SmsModal depuis l'interface Groupes, éditer le texte, cliquer "Enregistrer comme template".
 
@@ -74,6 +79,7 @@ Pour modifier un template : ouvrir le SmsModal depuis l'interface Groupes, édit
 ### Via l'interface
 
 L'icône SMS de chaque élève passe en vert (CheckCircle) quand un SMS a été envoyé avec succès.
+Le badge « X/N prévenu » et l'historique lisent `v_sms_queue_cockpit`.
 
 ### Via SQL
 

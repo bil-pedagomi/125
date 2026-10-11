@@ -1,17 +1,13 @@
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { createClient } from 'jsr:@supabase/supabase-js@2';
+import { corsHeaders as baseCors } from '../_shared/cors.ts';
+import { AccessError, requireCockpitUser } from '../_shared/auth.ts';
 
 const sb = createClient(
   Deno.env.get('SUPABASE_URL')!,
   Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
 );
 
-const DASHBOARD_API_KEY = Deno.env.get('DASHBOARD_API_KEY') || 'eb498a94-3602-46a4-bce7-df288002402d';
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-  'Content-Type': 'application/json',
-};
+const corsHeaders = { ...baseCors, 'Content-Type': 'application/json' };
 
 function normPhone(p: string | null): string | null {
   if (!p) return null;
@@ -24,27 +20,67 @@ function normPhone(p: string | null): string | null {
   return d;
 }
 
+// PostgREST plafonne CHAQUE réponse à 1000 lignes (un .limit(5000) est
+// silencieusement ramené à 1000). Plusieurs sources dépassent déjà ce seuil
+// (inscriptions 125, appels) : sans pagination, le cockpit perdait des lignes
+// sans le dire — même mécanisme que l'incident des relances du 03-04/09.
+// Toute lecture passe donc par ici : pagination explicite + erreur LUE.
+const PAGE = 1000;
+async function toutLire<T = any>(
+  label: string,
+  // deno-lint-ignore no-explicit-any
+  requete: () => any,
+  max = Infinity,
+): Promise<T[]> {
+  const out: T[] = [];
+  for (let from = 0; from < max; from += PAGE) {
+    const to = Math.min(from + PAGE, max) - 1;
+    const { data, error } = await requete().range(from, to);
+    if (error) throw new Error(`Lecture ${label} impossible : ${error.message}`);
+    out.push(...(data || []));
+    if (!data || data.length < to - from + 1) break;
+  }
+  return out;
+}
+
+// Un filtre `in.(…)` de plus de ~1000 identifiants dépasse la longueur d'URL
+// acceptée par la passerelle : on découpe la liste.
+async function lireParLots<T = any>(
+  label: string,
+  ids: (string | number)[],
+  // deno-lint-ignore no-explicit-any
+  requete: (lot: (string | number)[]) => any,
+): Promise<T[]> {
+  const out: T[] = [];
+  for (let i = 0; i < ids.length; i += 200) {
+    out.push(...await toutLire<T>(label, () => requete(ids.slice(i, i + 200))));
+  }
+  return out;
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
-  const url = new URL(req.url);
-  if (url.searchParams.get('key') !== DASHBOARD_API_KEY) {
-    return new Response(JSON.stringify({error:'Unauthorized'}), {status:401, headers:corsHeaders});
+
+  try {
+    await requireCockpitUser(req);
+  } catch (e) {
+    const status = e instanceof AccessError ? e.status : 401;
+    return new Response(JSON.stringify({ error: (e as Error).message }), { status, headers: corsHeaders });
   }
 
   try {
-    const { data: sessions } = await sb.from('v_125_sessions')
+    // deno-lint-ignore no-explicit-any
+    const sessions = await toutLire<any>('v_125_sessions', () => sb.from('v_125_sessions')
       .select('id, calendly_uuid, event_type_name, start_time, status, nb_invitees, invitee_name, invitee_email, questions_and_answers')
-      .order('start_time', { ascending: false });
+      .order('start_time', { ascending: false }));
 
-    const sessionIds = (sessions || []).map((s: any) => s.id);
-    let inviteesRaw: any[] = [];
-    if (sessionIds.length > 0) {
-      const { data } = await sb.from('calendly_invitees')
-        .select('id, invitee_uuid, calendly_event_id, calendly_event_uuid, name, email, phone, status, rescheduled, payment_amount, payment_currency, no_show, calendly_created_at, questions_and_answers')
-        .in('calendly_event_id', sessionIds)
-        .order('calendly_event_id', { ascending: false });
-      inviteesRaw = data || [];
-    }
+    const sessionIds = sessions.map((s: any) => s.id);
+    let inviteesRaw: any[] = await lireParLots('calendly_invitees', sessionIds, (lot) => sb.from('calendly_invitees')
+      .select('id, invitee_uuid, calendly_event_id, calendly_event_uuid, name, email, phone, status, rescheduled, payment_amount, payment_currency, no_show, calendly_created_at, questions_and_answers')
+      .in('calendly_event_id', lot)
+      .order('id', { ascending: true }));
+    // Ordre historique de la réponse (par session, plus récente d'abord).
+    inviteesRaw.sort((a: any, b: any) => (b.calendly_event_id - a.calendly_event_id) || (a.id - b.id));
 
     // --- FIX REPORTS : retirer les invites annules pour cause de report ---
     // Regle autoritaire : rescheduled=true (flag API Calendly) => report => on masque.
@@ -52,7 +88,7 @@ Deno.serve(async (req) => {
     // dont le meme email a une place 'active' 125 a une date >= est considere comme report.
     // On CONSERVE les 'canceled' non reprogrammes (= vraie annulation, vente ferme).
     const startBySession = new Map<number, string>();
-    for (const s of (sessions || [])) startBySession.set(s.id, s.start_time);
+    for (const s of sessions) startBySession.set(s.id, s.start_time);
     const activeStartsByEmail = new Map<string, string[]>();
     for (const i of inviteesRaw) {
       if (i.status === 'active') {
@@ -77,42 +113,52 @@ Deno.serve(async (req) => {
     // --- CARTES 125 deja fabriquees (etat on/off par invite) ---
     const carteByUuid = new Map<string, boolean>();
     const inviteeUuids = inviteesRaw.map((i: any) => i.invitee_uuid).filter(Boolean);
-    if (inviteeUuids.length > 0) {
-      const { data: cartes } = await sb.from('f125_carte_125')
-        .select('invitee_uuid, carte_faite')
-        .in('invitee_uuid', inviteeUuids);
-      for (const c of (cartes || [])) carteByUuid.set(c.invitee_uuid, c.carte_faite === true);
-    }
+    const cartes = await lireParLots('f125_carte_125', inviteeUuids, (lot) => sb.from('f125_carte_125')
+      .select('invitee_uuid, carte_faite')
+      .in('invitee_uuid', lot)
+      .order('invitee_uuid'));
+    for (const c of cartes) carteByUuid.set(c.invitee_uuid, c.carte_faite === true);
 
-    const { data: formData } = await sb.from('v_125_formulaires').select('*').order('submit_date', { ascending: false });
-    const formulaires = formData || [];
+    // Tri secondaire sur une colonne unique : sans ordre total, la pagination
+    // par range() peut sauter ou dupliquer des lignes à égalité.
+    const formulaires = await toutLire('v_125_formulaires', () => sb.from('v_125_formulaires').select('*')
+      .order('submit_date', { ascending: false }).order('email'));
     const formByEmail = new Map<string, any>();
     for (const f of formulaires) {
       const email = (f.email || '').toLowerCase().trim();
       if (email && !formByEmail.has(email)) formByEmail.set(email, f);
     }
 
-    const { data: matchData } = await sb.from('v_125_form_matching').select('invitee_id, form_email, match_method');
+    const matchData = await toutLire('v_125_form_matching', () => sb.from('v_125_form_matching')
+      .select('invitee_id, form_email, match_method').order('invitee_id').order('form_email').order('match_method'));
     const formMatchByInvitee = new Map<number, {form_email: string, method: string}>();
-    for (const m of (matchData || [])) {
+    for (const m of matchData) {
       if (!formMatchByInvitee.has(m.invitee_id)) {
         formMatchByInvitee.set(m.invitee_id, { form_email: m.form_email, method: m.match_method });
       }
     }
 
-    const { data: appels } = await sb.from('v_125_appels').select('*');
+    const appels = await toutLire('v_125_appels', () => sb.from('v_125_appels').select('*')
+      .order('email').order('date_formation').order('tel_norm'));
     const appelByEmail = new Map<string, any>();
-    for (const a of (appels || [])) {
+    for (const a of appels) {
       const email = (a.email || '').toLowerCase().trim();
       if (email) appelByEmail.set(email, a);
     }
 
-    const { data: allAppels } = await sb.from('crm_appels_analyses')
-      .select('telephone, date_appel, duree_secondes, resume, motifs, type_appel')
-      .order('date_appel', { ascending: false })
-      .limit(5000);
+    // La table compte plus de 20 000 appels (tous motifs confondus) : on ne
+    // charge que ceux des numéros des élèves 125, sous les formats rencontrés
+    // en base (33…, 330…, 0…, +33…). Auparavant, un .limit(5000) ramené à 1000
+    // par PostgREST ne gardait que les appels les plus récents.
+    const phones9 = [...new Set(inviteesRaw.map((i: any) => normPhone(i.phone)).filter((p) => p && p.length === 9))] as string[];
+    const formatsTel = phones9.flatMap((n) => [`33${n}`, `330${n}`, `0${n}`, `+33${n}`]);
+    const allAppels = await lireParLots('crm_appels_analyses', formatsTel, (lot) => sb.from('crm_appels_analyses')
+      .select('id, telephone, date_appel, duree_secondes, resume, motifs, type_appel')
+      .in('telephone', lot)
+      .order('id'));
+    allAppels.sort((a: any, b: any) => String(b.date_appel ?? '').localeCompare(String(a.date_appel ?? '')));
     const appelsByPhone = new Map<string, any[]>();
-    for (const r of (allAppels || [])) {
+    for (const r of allAppels) {
       const norm = normPhone(r.telephone);
       if (!norm) continue;
       if (!appelsByPhone.has(norm)) appelsByPhone.set(norm, []);
@@ -120,12 +166,11 @@ Deno.serve(async (req) => {
     }
 
     // RELANCES SMS par email
-    const { data: relancesRaw } = await sb.from('relances_typeform')
-      .select('email, type_relance, statut, date_formation, sent_at, telephone')
-      .order('sent_at', { ascending: false })
-      .limit(5000);
+    const relancesRaw = await toutLire('relances_typeform', () => sb.from('relances_typeform')
+      .select('id, email, type_relance, statut, date_formation, sent_at')
+      .order('sent_at', { ascending: false }).order('id'), 5000);
     const relancesByEmail = new Map<string, any[]>();
-    for (const r of (relancesRaw || [])) {
+    for (const r of relancesRaw) {
       const email = (r.email || '').toLowerCase().trim();
       if (!email) continue;
       if (!relancesByEmail.has(email)) relancesByEmail.set(email, []);
@@ -137,15 +182,17 @@ Deno.serve(async (req) => {
       });
     }
 
-    const { data: emails } = await sb.from('emails_clients')
+    const emails = await toutLire('emails_clients', () => sb.from('emails_clients')
       .select('email_expediteur, email_destinataire, sujet, body_extrait, date_reception, direction, categorie, sous_categorie, boite_mail')
-      .eq('direction', 'inbound').order('date_reception', { ascending: false }).limit(1000);
+      .eq('direction', 'inbound').order('date_reception', { ascending: false }), 1000);
 
+    const invCountBySession = new Map<number, number>();
+    for (const i of inviteesRaw) invCountBySession.set(i.calendly_event_id, (invCountBySession.get(i.calendly_event_id) || 0) + 1);
     const caByMonth = new Map<string, number>();
-    for (const s of (sessions || [])) {
+    for (const s of sessions) {
       const month = (s.start_time || '').slice(0, 7);
       if (!month) continue;
-      const invCount = inviteesRaw.filter((i: any) => i.calendly_event_id === s.id).length;
+      const invCount = invCountBySession.get(s.id) || 0;
       const actual = invCount > 0 ? invCount : (s.nb_invitees || 0);
       caByMonth.set(month, (caByMonth.get(month) || 0) + actual * 199);
     }
@@ -197,14 +244,14 @@ Deno.serve(async (req) => {
       };
     });
 
-    const sessionsEnriched = (sessions || []).map((s: any) => {
+    const sessionsEnriched = sessions.map((s: any) => {
       const email = (s.invitee_email || '').toLowerCase().trim();
       const form = formByEmail.get(email);
       const appel = appelByEmail.get(email);
       return { ...s, form_rempli: form ? true : false, a_appele: appel?.a_appele === true, nb_appels: appel?.nb_appels || 0 };
     });
 
-    const appelsArr = appels || [];
+    const appelsArr = appels;
     const withTel = appelsArr.filter((a: any) => a.tel_norm && a.tel_norm !== '');
     const kpis = {
       total_sessions: sessionsEnriched.length,
@@ -216,17 +263,18 @@ Deno.serve(async (req) => {
       appels_avec: appelsArr.filter((a: any) => a.a_appele).length,
       appels_sans: withTel.filter((a: any) => !a.a_appele).length,
       taux_appel: withTel.length > 0 ? Math.round(100 * appelsArr.filter((a: any) => a.a_appele).length / withTel.length) : 0,
-      emails_125: (emails || []).length,
-      total_relances_envoyees: (relancesRaw || []).filter((r: any) => r.statut === 'sent').length,
+      emails_125: emails.length,
+      total_relances_envoyees: relancesRaw.filter((r: any) => r.statut === 'sent').length,
     };
 
     return new Response(JSON.stringify({
       sessions: sessionsEnriched, invitees: inviteesEnriched, formulaires,
-      appels: appelsArr, resumes_appels: [], emails: emails || [],
+      appels: appelsArr, resumes_appels: [], emails,
       kpis, ca_comparaison: caComparaison,
     }), { headers: corsHeaders });
 
   } catch (e: any) {
+    console.error('dashboard-125:', e);
     return new Response(JSON.stringify({ error: e.message }), { status: 500, headers: corsHeaders });
   }
 });

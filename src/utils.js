@@ -1,49 +1,58 @@
-const API_URL = 'https://yuolnqyejxtfpxntflle.supabase.co/functions/v1/dashboard-125?key=eb498a94-3602-46a4-bce7-df288002402d';
-const SUPABASE_URL = 'https://yuolnqyejxtfpxntflle.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inl1b2xucXllanh0ZnB4bnRmbGxlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIxOTIzNzcsImV4cCI6MjA4Nzc2ODM3N30.cktsC7ly3ImeIY_2mVmxo0phSTz3obIG3UHgl_iDa7U';
+import { SUPABASE_URL, SUPABASE_ANON_KEY, getAccessToken } from './supabase';
 
-const FILE_PROXY_KEY = 'eb498a94-3602-46a4-bce7-df288002402d';
+// En-têtes PostgREST / Edge Functions pour l'utilisateur CONNECTÉ. Les tables
+// du cockpit ne sont plus ouvertes à la clé anon : chaque appel porte le jeton
+// de session, et les policies cockpit_125_* décident de l'accès.
+async function sbHeaders(extra = {}) {
+  const token = await getAccessToken();
+  return {
+    'Content-Type': 'application/json',
+    'apikey': SUPABASE_ANON_KEY,
+    'Authorization': `Bearer ${token}`,
+    'Prefer': 'return=representation',
+    ...extra,
+  };
+}
 
-// Wrap a raw Typeform file URL with the Supabase file-proxy so the browser
-// displays it inline (PDFs render instead of downloading). Use ONLY for the
-// "view" action — the "download" buttons keep the direct Typeform URL.
-export function getProxyUrl(typeformUrl) {
-  if (!typeformUrl) return typeformUrl;
-  return `${SUPABASE_URL}/functions/v1/file-proxy?key=${FILE_PROXY_KEY}&url=${encodeURIComponent(typeformUrl)}`;
+// Visualisation d'une pièce Typeform (PDF / image) via la fonction file-proxy,
+// qui la renvoie en `inline` pour que le navigateur l'affiche au lieu de la
+// télécharger. Une balise <img>/<iframe> ne sait pas envoyer d'en-tête
+// Authorization : on télécharge donc le fichier avec le jeton, puis on en
+// fait une URL blob locale. L'appelant doit la libérer (URL.revokeObjectURL).
+export async function fetchProxiedFile(typeformUrl) {
+  const res = await fetch(
+    `${SUPABASE_URL}/functions/v1/file-proxy?url=${encodeURIComponent(typeformUrl)}`,
+    { headers: await sbHeaders() },
+  );
+  if (!res.ok) throw new Error(`Erreur fichier: ${res.status}`);
+  return URL.createObjectURL(await res.blob());
 }
 
 export async function fetchDashboardData() {
-  const res = await fetch(API_URL);
-  if (!res.ok) throw new Error(`Erreur API: ${res.status}`);
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/dashboard-125`, { headers: await sbHeaders() });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error ? `Erreur API: ${body.error}` : `Erreur API: ${res.status}`);
+  }
   return res.json();
 }
 
-export async function fetchTrafficConversion(year) {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/get_traffic_conversion`, {
+async function rpc(name, args, label) {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${name}`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'apikey': SUPABASE_ANON_KEY,
-      'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-    },
-    body: JSON.stringify({ p_year: year }),
+    headers: await sbHeaders(),
+    body: JSON.stringify(args),
   });
-  if (!res.ok) throw new Error(`Erreur trafic API: ${res.status}`);
+  if (!res.ok) throw new Error(`${label}: ${res.status}`);
   return res.json();
 }
 
-export async function fetchPage125Stats(dateStart, dateEnd) {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/get_page125_stats`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'apikey': SUPABASE_ANON_KEY,
-      'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-    },
-    body: JSON.stringify({ p_date_start: dateStart, p_date_end: dateEnd }),
-  });
-  if (!res.ok) throw new Error(`Erreur API stats 125: ${res.status}`);
-  return res.json();
+export function fetchTrafficConversion(year) {
+  return rpc('get_traffic_conversion', { p_year: year }, 'Erreur trafic API');
+}
+
+export function fetchPage125Stats(dateStart, dateEnd) {
+  return rpc('get_page125_stats', { p_date_start: dateStart, p_date_end: dateEnd }, 'Erreur API stats 125');
 }
 
 export function normalizePhone(phone) {
@@ -562,16 +571,9 @@ export function computeAccompagnements(groupes) {
   };
 }
 
-const SB_HEADERS = {
-  'Content-Type': 'application/json',
-  'apikey': SUPABASE_ANON_KEY,
-  'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-  'Prefer': 'return=representation',
-};
-
 export async function fetchGroupes(eventUuid) {
   const url = `${SUPABASE_URL}/rest/v1/formation_groupes?calendly_event_uuid=eq.${encodeURIComponent(eventUuid)}&order=groupe_numero,ordre_passage`;
-  const res = await fetch(url, { headers: SB_HEADERS });
+  const res = await fetch(url, { headers: await sbHeaders() });
   if (!res.ok) throw new Error(`Erreur fetch groupes: ${res.status}`);
   return res.json();
 }
@@ -580,7 +582,7 @@ export async function fetchGroupes(eventUuid) {
 // group's start time and capacity, independent of its members.
 export async function fetchGroupesMeta(eventUuid) {
   const url = `${SUPABASE_URL}/rest/v1/formation_groupes_meta?calendly_event_uuid=eq.${encodeURIComponent(eventUuid)}&order=numero`;
-  const res = await fetch(url, { headers: SB_HEADERS });
+  const res = await fetch(url, { headers: await sbHeaders() });
   if (!res.ok) throw new Error(`Erreur fetch groupes meta: ${res.status}`);
   return res.json();
 }
@@ -590,7 +592,7 @@ export async function fetchGroupesMeta(eventUuid) {
 async function sbDelete(path) {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
     method: 'DELETE',
-    headers: SB_HEADERS,
+    headers: await sbHeaders(),
   });
   if (!res.ok && res.status !== 404) {
     const errText = await res.text().catch(() => '');
@@ -602,28 +604,12 @@ async function sbDelete(path) {
 // Never hardcode values that live in this table — always read from here.
 export async function fetchConfig() {
   const url = `${SUPABASE_URL}/rest/v1/f125_config?select=cle,valeur`;
-  const res = await fetch(url, { headers: SB_HEADERS });
+  const res = await fetch(url, { headers: await sbHeaders() });
   if (!res.ok) throw new Error(`Erreur fetch config: ${res.status}`);
   const rows = await res.json();
   const config = {};
   rows.forEach(r => { config[r.cle] = r.valeur; });
   return config;
-}
-
-// Generate the SMS message for one student. The hour is the group's REAL
-// (possibly edited) start time, passed in by the caller — never re-derived
-// from f125_config by group number. Address/phone still come from config.
-// dateFormation must be a Date object (e.g. new Date(session.start_time)).
-export function genererMessageSMS(prenom, dateFormation, heure, config) {
-  const dateFormatee = new Intl.DateTimeFormat('fr-FR', {
-    weekday: 'long',
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric',
-  }).format(dateFormation);
-  const adresse = config?.adresse_formation || '';
-  const tel = config?.telephone_contact || '';
-  return `Bonjour ${prenom}, vos groupes pour votre formation 125cc Pedagomi ont été constitués. Vous faites partie du groupe de ${heure}. Rendez-vous le ${dateFormatee} à ${heure} au ${adresse}. En cas de problème appelez le ${tel}.`;
 }
 
 export function genererMessageFromTemplate(template, variables) {
@@ -634,10 +620,7 @@ export async function sendSMSViaEdgeFunction({ calendly_event_uuid, groupe_numer
   const url = `${SUPABASE_URL}/functions/v1/send-sms-ringover`;
   const res = await fetch(url, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-    },
+    headers: await sbHeaders(),
     body: JSON.stringify({ calendly_event_uuid, groupe_numero, date_formation, heure_groupe, destinataires }),
   });
   if (!res.ok) {
@@ -653,7 +636,7 @@ export async function sendSMSViaEdgeFunction({ calendly_event_uuid, groupe_numer
 // strict nécessaire — qui a été prévenu, pour quel horaire, quand.
 export async function fetchSMSHistory(eventUuid) {
   const url = `${SUPABASE_URL}/rest/v1/v_sms_queue_cockpit?calendly_event_uuid=eq.${encodeURIComponent(eventUuid)}&order=created_at.desc`;
-  const res = await fetch(url, { headers: SB_HEADERS });
+  const res = await fetch(url, { headers: await sbHeaders() });
   if (!res.ok) throw new Error(`Erreur fetch SMS history: ${res.status}`);
   return res.json();
 }
@@ -663,14 +646,20 @@ export async function saveSmsTemplate(groupeNum, template) {
   const url = `${SUPABASE_URL}/rest/v1/f125_config?cle=eq.${encodeURIComponent(cle)}`;
   const res = await fetch(url, {
     method: 'PATCH',
-    headers: { ...SB_HEADERS, 'Prefer': 'return=representation' },
+    headers: await sbHeaders({ 'Prefer': 'return=representation' }),
     body: JSON.stringify({ valeur: template }),
   });
   if (!res.ok) {
     const errText = await res.text().catch(() => '');
     throw new Error(`Erreur save template: ${res.status} — ${errText}`);
   }
-  return res.json();
+  // PostgREST répond 200 même quand RLS empêche la mise à jour : sans ligne
+  // renvoyée, rien n'a été enregistré — on le dit au lieu d'afficher « OK ».
+  const rows = await res.json();
+  if (!Array.isArray(rows) || rows.length === 0) {
+    throw new Error('Template non enregistré (droits insuffisants ou clé absente)');
+  }
+  return rows;
 }
 
 // Persist the CURRENT in-memory snapshot (routine save — no recomputation).
@@ -714,7 +703,7 @@ export async function saveGroupes(eventUuid, dateFormation, groupes) {
       `${SUPABASE_URL}/rest/v1/formation_groupes?on_conflict=calendly_event_uuid,invitee_uuid`,
       {
         method: 'POST',
-        headers: { ...SB_HEADERS, 'Prefer': 'resolution=merge-duplicates, return=representation' },
+        headers: await sbHeaders({ 'Prefer': 'resolution=merge-duplicates, return=representation' }),
         body: JSON.stringify(rows),
       }
     );
@@ -744,7 +733,7 @@ export async function saveGroupes(eventUuid, dateFormation, groupes) {
       `${SUPABASE_URL}/rest/v1/formation_groupes_meta?on_conflict=calendly_event_uuid,numero`,
       {
         method: 'POST',
-        headers: { ...SB_HEADERS, 'Prefer': 'resolution=merge-duplicates, return=representation' },
+        headers: await sbHeaders({ 'Prefer': 'resolution=merge-duplicates, return=representation' }),
         body: JSON.stringify(metaRows),
       }
     );
@@ -772,7 +761,7 @@ export async function saveGroupes(eventUuid, dateFormation, groupes) {
 // Toutes les lignes d'attribution, à fusionner par calendly_uuid côté client.
 export async function fetchSessionsMeta() {
   const url = `${SUPABASE_URL}/rest/v1/f125_session_meta?select=calendly_uuid,fait_par,nb_groupes,note`;
-  const res = await fetch(url, { headers: SB_HEADERS });
+  const res = await fetch(url, { headers: await sbHeaders() });
   if (!res.ok) throw new Error(`Erreur fetch attribution sessions: ${res.status}`);
   return res.json();
 }
@@ -784,7 +773,7 @@ export async function upsertSessionMeta(meta) {
   const url = `${SUPABASE_URL}/rest/v1/f125_session_meta?on_conflict=calendly_uuid`;
   const res = await fetch(url, {
     method: 'POST',
-    headers: { ...SB_HEADERS, 'Prefer': 'resolution=merge-duplicates, return=representation' },
+    headers: await sbHeaders({ 'Prefer': 'resolution=merge-duplicates, return=representation' }),
     body: JSON.stringify({ ...meta, updated_at: new Date().toISOString() }),
   });
   if (!res.ok) {
@@ -795,7 +784,7 @@ export async function upsertSessionMeta(meta) {
 }
 
 export function consolidateData(raw) {
-  const { sessions = [], invitees = [], formulaires = [], resumes_appels = [], kpis = {} } = raw;
+  const { sessions = [], invitees = [], resumes_appels = [], kpis = {} } = raw;
 
   // --- Invitees arrive pre-enriched from API with: form_rempli, niveau_scooter, source_acquisition, a_appele, nb_appels, resumes_appels ---
   const enrichedInvitees = invitees.map(inv => ({

@@ -1,6 +1,6 @@
-import { useEffect } from 'react';
-import { X, Download } from 'lucide-react';
-import { getProxyUrl } from '../utils';
+import { useEffect, useState } from 'react';
+import { X, Download, Loader } from 'lucide-react';
+import { fetchProxiedFile } from '../utils';
 
 export default function Lightbox({ url, label, onClose }) {
   useEffect(() => {
@@ -8,6 +8,27 @@ export default function Lightbox({ url, label, onClose }) {
     document.addEventListener('keydown', handleKey);
     return () => document.removeEventListener('keydown', handleKey);
   }, [onClose]);
+
+  // Fichier servi par file-proxy (authentifié) puis affiché via une URL blob.
+  const [blob, setBlob] = useState({ src: null, error: null, forUrl: null });
+  useEffect(() => {
+    if (!url) return;
+    let objectUrl = null;
+    let cancelled = false;
+    fetchProxiedFile(url)
+      .then(u => {
+        objectUrl = u;
+        if (cancelled) URL.revokeObjectURL(u);
+        else setBlob({ src: u, error: null, forUrl: url });
+      })
+      .catch(e => { if (!cancelled) setBlob({ src: null, error: e.message, forUrl: url }); });
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [url]);
+  const src = blob.forUrl === url ? blob.src : null;
+  const loadError = blob.forUrl === url ? blob.error : null;
 
   if (!url) return null;
 
@@ -71,9 +92,13 @@ export default function Lightbox({ url, label, onClose }) {
 
         {/* Content — served through the file-proxy so PDFs render inline
             instead of downloading. The download link above keeps the direct URL. */}
-        {isPdf ? (
+        {loadError ? (
+          <div style={{ color: '#ef4444', fontSize: 13 }}>Impossible d'afficher le fichier : {loadError}</div>
+        ) : !src ? (
+          <Loader size={24} color="#a5b4fc" />
+        ) : isPdf ? (
           <iframe
-            src={getProxyUrl(url)}
+            src={src}
             style={{
               width: '100%', height: '80vh',
               border: '1px solid #334155', borderRadius: 8,
@@ -83,7 +108,7 @@ export default function Lightbox({ url, label, onClose }) {
           />
         ) : (
           <img
-            src={getProxyUrl(url)}
+            src={src}
             alt={label}
             style={{
               maxWidth: '100%', maxHeight: '80vh',

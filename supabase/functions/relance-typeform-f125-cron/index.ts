@@ -1,10 +1,16 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { secretsEgaux } from "../_shared/auth.ts";
 
 const RINGOVER_API_KEY = Deno.env.get('RINGOVER_API_KEY') ?? '';
 const FROM_NUMBER = Deno.env.get('RINGOVER_SMS_FROM_NUMBER') ?? '';
 const RINGOVER_URL = 'https://public-api.ringover.com/v2/push/sms';
 const TYPEFORM_URL = 'https://form.typeform.com/to/npPOcgRV';
+// Secret partage avec le job pg_cron (stocke dans Vault, cf. migration
+// 20261011_relance_cron_secret). Sans lui, n'importe qui pouvait
+// declencher les relances, et `?dry_run=true` renvoyait prenoms, emails et
+// telephones des eleves.
+const CRON_SECRET = Deno.env.get('RELANCE_CRON_SECRET') ?? '';
 
 const supabase = createClient(
   Deno.env.get('SUPABASE_URL')!,
@@ -142,7 +148,20 @@ async function traiterCandidats(candidats: any[], type: string, targetDate: stri
   }
 }
 
+// Lit une requete PostgREST en levant l'erreur au lieu de l'avaler : une
+// lecture ratee ne doit jamais se traduire par « aucun resultat ».
+// deno-lint-ignore no-explicit-any
+async function lire<T = any>(label: string, q: PromiseLike<{ data: T[] | null; error: { message: string } | null }>): Promise<T[]> {
+  const { data, error } = await q;
+  if (error) throw new Error(`Lecture ${label} impossible : ${error.message}`);
+  return data || [];
+}
+
 Deno.serve(async (req: Request) => {
+  const fourni = (req.headers.get('Authorization') ?? '').replace(/^Bearer\s+/i, '');
+  if (!CRON_SECRET || !secretsEgaux(fourni, CRON_SECRET)) {
+    return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json' } });
+  }
   const url = new URL(req.url);
   const dryRun = url.searchParams.get('dry_run') === 'true';
   const log: any = {
@@ -192,32 +211,37 @@ Deno.serve(async (req: Request) => {
     log.dossiers_rapproches = inviteesAvecForm.size;
 
     // Helper : recupere les relances deja envoyees pour un type donne
+    // Une erreur de lecture leve une exception (run interrompu) : la traiter
+    // comme « jamais relance » renverrait le meme SMS a chaque execution.
     async function dejaRelance(email: string, dateFormation: string, type: string): Promise<boolean> {
-      const { data } = await supabase.from('relances_typeform')
-        .select('id').eq('email', email).eq('date_formation', dateFormation).eq('type_relance', type).limit(1);
-      return !!(data && data.length > 0);
+      const data = await lire('relances_typeform', supabase.from('relances_typeform')
+        .select('id').eq('email', email).eq('date_formation', dateFormation).eq('type_relance', type).limit(1));
+      return data.length > 0;
     }
 
     // ========== RELANCE ANTICIPATION ==========
     // Sessions 125 dont la formation est dans PLUS de 4 jours
-    const { data: sessionsAnticip } = await supabase.from('calendly_events')
+    const sessionsAnticip = await lire('calendly_events', supabase.from('calendly_events')
       .select('id, calendly_uuid, start_time, status, nb_invitees')
       .ilike('event_type_name', '%125%')
-      .gt('start_time', seuilAnticipation + 'T23:59:59');
-    const validAnticip = (sessionsAnticip || []).filter((s: any) => !(s.status === 'canceled' && (s.nb_invitees ?? 0) === 0));
+      .gt('start_time', seuilAnticipation + 'T23:59:59'));
+    const validAnticip = sessionsAnticip.filter((s: any) => !(s.status === 'canceled' && (s.nb_invitees ?? 0) === 0));
 
     if (validAnticip.length > 0) {
       const idsAnticip = validAnticip.map((s: any) => s.id);
       const uuidByIdA = new Map<number, string>(validAnticip.map((s: any) => [s.id, s.calendly_uuid]));
       const startByIdA = new Map<number, string>(validAnticip.map((s: any) => [s.id, (s.start_time || '').split('T')[0]]));
 
-      const { data: invA } = await supabase.from('calendly_invitees')
+      // Inscrits ACTIFS uniquement : un eleve qui a annule (ou reporte, la
+      // reservation d'origine passant en « canceled ») n'a pas a etre relance.
+      const invA = await lire('calendly_invitees', supabase.from('calendly_invitees')
         .select('id, calendly_event_id, name, first_name, email, phone, invitee_uuid, calendly_created_at')
         .in('calendly_event_id', idsAnticip)
-        .lte('calendly_created_at', reserveAvant); // reserve il y a au moins 2 jours
+        .eq('status', 'active')
+        .lte('calendly_created_at', reserveAvant)); // reserve il y a au moins 2 jours
 
       const uniqA = new Map<string, any>();
-      for (const inv of (invA || [])) {
+      for (const inv of invA) {
         const key = (inv.email || '').toLowerCase().trim();
         if (key && !uniqA.has(key)) uniqA.set(key, inv);
       }
@@ -239,22 +263,23 @@ Deno.serve(async (req: Request) => {
 
     // ========== RELANCES J-2 ET J-1 ==========
     for (const [type, targetDate] of [['j-2', j2Target], ['j-1', j1Target]] as const) {
-      const { data: sessions } = await supabase.from('calendly_events')
+      const sessions = await lire('calendly_events', supabase.from('calendly_events')
         .select('id, calendly_uuid, start_time, status, nb_invitees')
         .ilike('event_type_name', '%125%')
         .gte('start_time', targetDate + 'T00:00:00')
-        .lte('start_time', targetDate + 'T23:59:59');
-      const valid = (sessions || []).filter((s: any) => !(s.status === 'canceled' && (s.nb_invitees ?? 0) === 0));
+        .lte('start_time', targetDate + 'T23:59:59'));
+      const valid = sessions.filter((s: any) => !(s.status === 'canceled' && (s.nb_invitees ?? 0) === 0));
       if (valid.length === 0) { log.details.push({ type, target_date: targetDate, message: 'Aucune session' }); continue; }
 
       const ids = valid.map((s: any) => s.id);
       const uuidById = new Map<number, string>(valid.map((s: any) => [s.id, s.calendly_uuid]));
-      const { data: invitees } = await supabase.from('calendly_invitees')
+      const invitees = await lire('calendly_invitees', supabase.from('calendly_invitees')
         .select('id, calendly_event_id, name, first_name, email, phone, invitee_uuid')
-        .in('calendly_event_id', ids);
+        .in('calendly_event_id', ids)
+        .eq('status', 'active'));
 
       const uniq = new Map<string, any>();
-      for (const inv of (invitees || [])) {
+      for (const inv of invitees) {
         const key = (inv.email || '').toLowerCase().trim();
         if (key && !uniq.has(key)) uniq.set(key, inv);
       }
@@ -284,7 +309,7 @@ Deno.serve(async (req: Request) => {
     return new Response(JSON.stringify(log, null, 2), { headers: { 'Content-Type': 'application/json' } });
   } catch (err: any) {
     console.error('relance error:', err);
-    await supabase.from('sync_log_unifie').insert({ source: 'relance_typeform_f125', status: 'error', error_message: err.message }).catch(() => {});
+    await supabase.from('sync_log_unifie').insert({ source: 'relance_typeform_f125', status: 'error', error_message: err.message });
     return new Response(JSON.stringify({ error: err.message, ...log }), { status: 500, headers: { 'Content-Type': 'application/json' } });
   }
 });

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { X, Send, Save, Loader, Check, AlertTriangle } from 'lucide-react';
 import { toE164, genererMessageFromTemplate, sendSMSViaEdgeFunction, saveSmsTemplate, formatHeureSms, inviteeKey } from '../utils';
 
@@ -52,12 +52,16 @@ function isFixe(phone) {
 
 export default function SmsModal({ open, onClose, groupe, session, config, smsHistory, onSmsSent }) {
   const [template, setTemplate] = useState('');
-  const [selected, setSelected] = useState({});
+  // Choix MANUELS uniquement (clé élève → coché/décoché). La sélection par
+  // défaut (« tous ceux qui ont un mobile valide ») est dérivée à l'affichage :
+  // un rafraîchissement du parent (historique SMS, sauvegarde des groupes) ne
+  // peut donc plus recocher quelqu'un que l'on vient de décocher.
+  const [overrides, setOverrides] = useState({});
   const [sending, setSending] = useState(false);
   const [sendResult, setSendResult] = useState(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
-  const [lockUntil, setLockUntil] = useState(0);
+  const [locked, setLocked] = useState(false);
 
   const membres = groupe?.membres || [];
   const groupeNum = groupe?.numero || 1;
@@ -77,23 +81,29 @@ export default function SmsModal({ open, onClose, groupe, session, config, smsHi
     }).format(new Date(session.start_time));
   }, [session]);
 
-  useEffect(() => {
-    if (!open) return;
-    // Single canonical template, hour-agnostic: the real group hour is injected
-    // via {horaire}. Selection no longer depends on the group number, so the
-    // chronological renumbering never sends a wrong/mismatched hour.
-    const tpl = config?.[SMS_TEMPLATE_KEY] || "Bonjour {prenom}, rappel formation 125 le {date} a {horaire} a l'agence Pedagomi. Vehicule : {vehicule}. Merci d'arriver 15 min avant. A bientot !";
-    setTemplate(tpl);
-    setSendResult(null);
-    setSaved(false);
-    const sel = {};
-    membres.forEach(m => { sel[inviteeKey(m)] = !!(m.phone && toE164(m.phone)); });
-    setSelected(sel);
-  }, [open, groupeNum, config, membres, horaire]);
+  // (Ré)initialisation à chaque ouverture — et quand la config arrive — faite
+  // pendant le rendu plutôt que dans un effet (cf. « Adjusting state when a
+  // prop changes » dans la doc React), ce qui évite un rendu intermédiaire.
+  const initKey = open ? `${groupeNum}|${config ? 'cfg' : ''}` : null;
+  const [initFor, setInitFor] = useState(null);
+  if (initFor !== initKey) {
+    setInitFor(initKey);
+    if (open) {
+      // Single canonical template, hour-agnostic: the real group hour is injected
+      // via {horaire}. Selection no longer depends on the group number, so the
+      // chronological renumbering never sends a wrong/mismatched hour.
+      setTemplate(config?.[SMS_TEMPLATE_KEY] || "Bonjour {prenom}, rappel formation 125 le {date} a {horaire} a l'agence Pedagomi. Vehicule : {vehicule}. Merci d'arriver 15 min avant. A bientot !");
+      setSendResult(null);
+      setSaved(false);
+      setOverrides({});
+    }
+  }
+
+  const isSelected = (m) => overrides[inviteeKey(m)] ?? !!(m.phone && toE164(m.phone));
 
   const checkedMembers = useMemo(
-    () => membres.filter(m => selected[inviteeKey(m)] && m.phone && toE164(m.phone)),
-    [membres, selected]
+    () => membres.filter(m => (overrides[inviteeKey(m)] ?? true) && m.phone && toE164(m.phone)),
+    [membres, overrides]
   );
 
   const firstChecked = checkedMembers[0];
@@ -112,8 +122,8 @@ export default function SmsModal({ open, onClose, groupe, session, config, smsHi
   const smsCount = countSms(charCount);
   const counterClass = smsCount > 3 ? 'danger' : smsCount > 1 ? 'warn' : '';
 
-  const handleToggle = (key) => {
-    setSelected(prev => ({ ...prev, [key]: !prev[key] }));
+  const handleToggle = (m) => {
+    setOverrides(prev => ({ ...prev, [inviteeKey(m)]: !isSelected(m) }));
   };
 
   const handleSaveTemplate = async () => {
@@ -130,12 +140,14 @@ export default function SmsModal({ open, onClose, groupe, session, config, smsHi
   };
 
   const handleSend = async () => {
-    if (Date.now() < lockUntil) return;
+    if (locked || sending) return;
     if (checkedMembers.length === 0) return;
 
     setSending(true);
     setSendResult(null);
-    setLockUntil(Date.now() + 5000);
+    // Anti double-clic : le bouton reste bloqué 5 s après chaque envoi.
+    setLocked(true);
+    setTimeout(() => setLocked(false), 5000);
 
     const destinataires = checkedMembers.map(m => {
       const prenom = (m.name || '').trim().split(/\s+/)[0] || (m.email || '').split('@')[0];
@@ -219,8 +231,8 @@ export default function SmsModal({ open, onClose, groupe, session, config, smsHi
                   <label>
                     <input
                       type="checkbox"
-                      checked={!!selected[inviteeKey(m)]}
-                      onChange={() => handleToggle(inviteeKey(m))}
+                      checked={isSelected(m)}
+                      onChange={() => handleToggle(m)}
                       disabled={!hasPhone}
                       style={{ accentColor: '#6c63ff' }}
                     />
@@ -304,7 +316,7 @@ export default function SmsModal({ open, onClose, groupe, session, config, smsHi
           <button
             className="sms-btn sms-btn-primary"
             onClick={handleSend}
-            disabled={sending || checkedMembers.length === 0 || Date.now() < lockUntil}
+            disabled={sending || locked || checkedMembers.length === 0}
           >
             {sending ? <Loader size={12} className="sms-spin" /> : <Send size={12} />}
             {sending ? 'Envoi en cours…' : `Envoyer à ${checkedMembers.length} destinataire${checkedMembers.length > 1 ? 's' : ''}`}

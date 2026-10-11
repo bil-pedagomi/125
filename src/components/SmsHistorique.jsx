@@ -24,25 +24,24 @@ function formatDate(ts) {
 }
 
 export default function SmsHistorique({ eventUuid }) {
-  const [rows, setRows] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [erreur, setErreur] = useState(null);
+  // Résultat rattaché à l'événement chargé : tant qu'il ne correspond pas à
+  // eventUuid, on est en cours de chargement (pas de setState synchrone).
+  const [etat, setEtat] = useState({ pour: null, rows: [], erreur: null });
+  const loading = etat.pour !== eventUuid;
+  const { rows, erreur } = etat;
 
   useEffect(() => {
     if (!eventUuid) return;
     let cancelled = false;
-    setLoading(true);
-    setErreur(null);
     fetchSMSHistory(eventUuid)
-      .then(data => { if (!cancelled) setRows(data); })
+      .then(data => { if (!cancelled) setEtat({ pour: eventUuid, rows: data, erreur: null }); })
       .catch(e => {
         console.error('Erreur historique SMS:', e);
         // Un historique vide et un historique illisible ne veulent pas dire la
         // même chose : le second doit se voir, sinon on croit qu'aucun SMS
         // n'est parti alors qu'on n'en sait rien (cas du 01/09 au 04/09).
-        if (!cancelled) setErreur(e.message || String(e));
-      })
-      .finally(() => { if (!cancelled) setLoading(false); });
+        if (!cancelled) setEtat({ pour: eventUuid, rows: [], erreur: e.message || String(e) });
+      });
     return () => { cancelled = true; };
   }, [eventUuid]);
 
