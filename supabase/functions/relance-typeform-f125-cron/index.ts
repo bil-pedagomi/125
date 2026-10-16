@@ -1,16 +1,10 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import { secretsEgaux } from "../_shared/auth.ts";
 
 const RINGOVER_API_KEY = Deno.env.get('RINGOVER_API_KEY') ?? '';
 const FROM_NUMBER = Deno.env.get('RINGOVER_SMS_FROM_NUMBER') ?? '';
 const RINGOVER_URL = 'https://public-api.ringover.com/v2/push/sms';
 const TYPEFORM_URL = 'https://form.typeform.com/to/npPOcgRV';
-// Secret partage avec le job pg_cron (stocke dans Vault, cf. migration
-// 20261011_relance_cron_secret). Sans lui, n'importe qui pouvait
-// declencher les relances, et `?dry_run=true` renvoyait prenoms, emails et
-// telephones des eleves.
-const CRON_SECRET = Deno.env.get('RELANCE_CRON_SECRET') ?? '';
 
 const supabase = createClient(
   Deno.env.get('SUPABASE_URL')!,
@@ -157,9 +151,22 @@ async function lire<T = any>(label: string, q: PromiseLike<{ data: T[] | null; e
   return data || [];
 }
 
-Deno.serve(async (req: Request) => {
+// Seul le job pg_cron peut declencher les relances : il envoie le secret
+// `relance_cron_secret` stocke dans Vault (cf. migration
+// 20261011_relance_cron_secret), verifie ici par RPC sans que la valeur ne
+// transite par les variables de la fonction. Avant, n'importe qui pouvait
+// declencher les envois, et `?dry_run=true` renvoyait prenoms, emails et
+// telephones des eleves.
+async function appelAutorise(req: Request): Promise<boolean> {
   const fourni = (req.headers.get('Authorization') ?? '').replace(/^Bearer\s+/i, '');
-  if (!CRON_SECRET || !secretsEgaux(fourni, CRON_SECRET)) {
+  if (fourni.length < 32) return false;
+  const { data, error } = await supabase.rpc('relance_cron_secret_valide', { p_secret: fourni });
+  if (error) console.error('relance: verification du secret impossible :', error.message);
+  return data === true;
+}
+
+Deno.serve(async (req: Request) => {
+  if (!(await appelAutorise(req))) {
     return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json' } });
   }
   const url = new URL(req.url);

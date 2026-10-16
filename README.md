@@ -36,7 +36,7 @@ par nature : elle ne donne accès à aucune donnée sans connexion.
   | `dashboard-125` | cockpit | jeton utilisateur + `f125_can_access()` |
   | `file-proxy` | cockpit (pièces Typeform) | jeton utilisateur + `f125_can_access()`, URLs `api.typeform.com` uniquement |
   | `send-sms-ringover` | cockpit (SmsModal) | jeton utilisateur + `f125_can_access()`, destinataires = inscrits de la session, au numéro enregistré |
-  | `relance-typeform-f125-cron` | pg_cron (job `relance-typeform-f125-daily`) | `Authorization: Bearer <RELANCE_CRON_SECRET>` (secret dans Vault : `relance_cron_secret`) |
+  | `relance-typeform-f125-cron` | pg_cron (job `relance-typeform-f125-daily`) | `Authorization: Bearer <secret>` — secret Vault `relance_cron_secret`, vérifié par la RPC `relance_cron_secret_valide` |
 
   Le contrôle étant fait dans le code, ces fonctions peuvent être déployées
   avec `--no-verify-jwt`.
@@ -53,10 +53,8 @@ accès anonymes soient fermés.
 2. Mettre en ligne le front (merge sur la branche de production Vercel).
 3. Appliquer la migration `supabase/migrations/20261011_cockpit_125_fermeture_anon.sql`.
 4. Cron des relances (indépendant des étapes 1 à 3) : appliquer
-   `20261011_relance_cron_secret.sql`, recopier le secret dans la fonction, puis la déployer :
+   `20261011_relance_cron_secret.sql`, puis déployer la fonction :
    ```bash
-   # valeur : select decrypted_secret from vault.decrypted_secrets where name = 'relance_cron_secret';
-   supabase secrets set RELANCE_CRON_SECRET=<valeur>
    supabase functions deploy relance-typeform-f125-cron --no-verify-jwt
    ```
 

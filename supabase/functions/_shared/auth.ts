@@ -39,11 +39,3 @@ export async function requireCockpitUser(req: Request): Promise<CockpitUser> {
 
   return { id: user.id, email: user.email ?? null };
 }
-
-// Comparaison à temps constant, pour les secrets partagés (cron).
-export function secretsEgaux(a: string, b: string): boolean {
-  if (!a || !b || a.length !== b.length) return false;
-  let diff = 0;
-  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  return diff === 0;
-}
