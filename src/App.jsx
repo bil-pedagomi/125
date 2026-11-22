@@ -7,6 +7,7 @@ import Eleves from './views/Eleves';
 import Stats from './views/Stats';
 import Conversions from './views/Conversions';
 import LoginPage from './components/LoginPage';
+import { hasSession, signOut } from './auth';
 
 const TABS = [
   { id: 'agenda', label: 'Agenda', icon: CalendarDays },
@@ -16,7 +17,7 @@ const TABS = [
 ];
 
 function App() {
-  const [loggedIn, setLoggedIn] = useState(false);
+  const [loggedIn, setLoggedIn] = useState(hasSession);
   const [tab, setTab] = useState('agenda');
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -27,7 +28,10 @@ function App() {
     setLoading(true);
     fetchDashboardData()
       .then(raw => setData(consolidateData(raw)))
-      .catch(err => setError(err.message))
+      .catch(err => {
+        if (!hasSession()) { setLoggedIn(false); return; }
+        setError(err.message);
+      })
       .finally(() => setLoading(false));
   }, [loggedIn]);
 
@@ -85,7 +89,7 @@ function App() {
           ))}
           <button
             className="tab logout-btn"
-            onClick={() => { setLoggedIn(false); setData(null); setTab('agenda'); }}
+            onClick={() => { signOut(); setLoggedIn(false); setData(null); setTab('agenda'); }}
             title="Déconnexion"
           >
             <LogOut size={16} />

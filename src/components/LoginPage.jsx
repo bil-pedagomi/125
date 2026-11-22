@@ -1,20 +1,26 @@
 import { useState } from 'react';
 import { LogIn } from 'lucide-react';
+import { signIn } from '../auth';
 
-const VALID_USER = 'pedagomi';
-const VALID_PASS = 'Ped@gomi125!';
-
+// Connexion avec un compte Supabase (e-mail + mot de passe). L'accès au cockpit
+// est réservé aux comptes autorisés (table f125_app_users) — vérifié par la base.
 export default function LoginPage({ onLogin }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState(false);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    if (username === VALID_USER && password === VALID_PASS) {
+    setBusy(true);
+    setError('');
+    try {
+      await signIn(username, password);
       onLogin();
-    } else {
-      setError(true);
+    } catch (err) {
+      setError(err.status === 403 ? err.message : 'E-mail ou mot de passe incorrect');
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -57,12 +63,12 @@ export default function LoginPage({ onLogin }) {
 
         <div style={{ marginBottom: 16 }}>
           <label style={{ display: 'block', fontSize: 12, color: '#94a3b8', marginBottom: 6, fontWeight: 600 }}>
-            Identifiant
+            E-mail
           </label>
           <input
-            type="text"
+            type="email"
             value={username}
-            onChange={e => { setUsername(e.target.value); setError(false); }}
+            onChange={e => { setUsername(e.target.value); setError(''); }}
             autoComplete="username"
             style={{
               width: '100%',
@@ -85,7 +91,7 @@ export default function LoginPage({ onLogin }) {
           <input
             type="password"
             value={password}
-            onChange={e => { setPassword(e.target.value); setError(false); }}
+            onChange={e => { setPassword(e.target.value); setError(''); }}
             autoComplete="current-password"
             style={{
               width: '100%',
@@ -112,11 +118,11 @@ export default function LoginPage({ onLogin }) {
             marginBottom: 16,
             textAlign: 'center',
           }}>
-            Identifiant ou mot de passe incorrect
+            {error}
           </div>
         )}
 
-        <button type="submit" style={{
+        <button type="submit" disabled={busy} style={{
           width: '100%',
           padding: '12px 0',
           fontSize: 15,
@@ -132,7 +138,7 @@ export default function LoginPage({ onLogin }) {
           gap: 8,
         }}>
           <LogIn size={16} />
-          Se connecter
+          {busy ? 'Connexion…' : 'Se connecter'}
         </button>
       </form>
     </div>

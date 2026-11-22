@@ -1,15 +1,16 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { accesCockpit125 } from './acces125.ts';
 
 const sb = createClient(
   Deno.env.get('SUPABASE_URL')!,
   Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
 );
 
-const DASHBOARD_API_KEY = Deno.env.get('DASHBOARD_API_KEY') || 'eb498a94-3602-46a4-bce7-df288002402d';
+// 22/11/2026 : plus de clé partagée dans l'adresse — accès réservé aux comptes du cockpit 125.
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, prefer',
   'Content-Type': 'application/json',
 };
 
@@ -26,8 +27,7 @@ function normPhone(p: string | null): string | null {
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
-  const url = new URL(req.url);
-  if (url.searchParams.get('key') !== DASHBOARD_API_KEY) {
+  if (!(await accesCockpit125(req))) {
     return new Response(JSON.stringify({error:'Unauthorized'}), {status:401, headers:corsHeaders});
   }
 

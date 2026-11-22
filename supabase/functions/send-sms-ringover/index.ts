@@ -1,170 +1,165 @@
+import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import { corsHeaders } from "../_shared/cors.ts";
+import { accesCockpit125 } from "./acces125.ts";
 
-const RINGOVER_BASE = "https://public-api.ringover.com/v2";
-const SLEEP_MS = 150;
+// 22/11/2026 (audit sécurité) : l'envoi de SMS est réservé aux comptes du cockpit 125.
+// Avant, la clé publique (anon) suffisait : n'importe qui pouvait envoyer un SMS
+// depuis le numéro Pedagomi.
 
-interface Destinataire {
-  invitee_uuid?: string;
-  prenom: string;
-  numero: string;
-  message: string;
+const RINGOVER_API_KEY = Deno.env.get('RINGOVER_API_KEY') ?? '';
+const FROM_NUMBER = Deno.env.get('RINGOVER_SMS_FROM_NUMBER') ?? '';
+const RINGOVER_SMS_URL = 'https://public-api.ringover.com/v2/push/sms';
+const MAX_DESTINATAIRES = 40;
+
+const supabase = createClient(
+  Deno.env.get('SUPABASE_URL')!,
+  Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+);
+
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, prefer',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS'
+};
+
+function toRingoverNumber(raw: string): string | null {
+  if (!raw) return null;
+  let n = raw.replace(/[^\d+]/g, '');
+  if (n.startsWith('00')) n = n.substring(2);
+  else if (n.startsWith('+')) n = n.substring(1);
+  else if (n.startsWith('0') && n.length === 10) n = '33' + n.substring(1);
+  if (!/^\d{10,15}$/.test(n)) return null;
+  return n;
 }
 
-interface RequestBody {
-  calendly_event_uuid: string;
-  groupe_numero: number;
-  date_formation?: string;
-  heure_groupe?: string;
-  destinataires: Destinataire[];
+function toE164(raw: string): string | null {
+  const r = toRingoverNumber(raw);
+  return r ? '+' + r : null;
 }
 
-function normalizePhone(num: string): string {
-  const digits = num.replace(/[^0-9]/g, "");
-  if (digits.startsWith("33")) return digits;
-  if (digits.startsWith("0") && digits.length === 10) return "33" + digits.slice(1);
-  if (digits.length === 9) return "33" + digits;
-  return digits;
-}
-
-function sleep(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
+async function sendOneSms(toNumber: string, content: string): Promise<{ success: boolean; messageId?: string; convId?: string; error?: string; status?: number }> {
+  const normalizedTo = toRingoverNumber(toNumber);
+  const normalizedFrom = toRingoverNumber(FROM_NUMBER);
+  if (!normalizedTo) return { success: false, error: `Numero destinataire invalide: ${toNumber}` };
+  if (!normalizedFrom) return { success: false, error: `Numero expediteur invalide: ${FROM_NUMBER}` };
+  try {
+    const res = await fetch(RINGOVER_SMS_URL, {
+      method: 'POST',
+      headers: { 'Authorization': RINGOVER_API_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from_number: normalizedFrom, to_number: normalizedTo, content })
+    });
+    const body = await res.text();
+    if (res.status >= 200 && res.status < 300) {
+      try {
+        const json = JSON.parse(body);
+        return { success: true, messageId: String(json.message_id ?? ''), convId: String(json.conv_id ?? ''), status: res.status };
+      } catch {
+        return { success: true, status: res.status };
+      }
+    }
+    return { success: false, error: `Ringover ${res.status}: ${body.substring(0, 300)}`, status: res.status };
+  } catch (e: any) {
+    return { success: false, error: `Fetch error: ${e.message}` };
   }
+}
 
-  const supabase = createClient(
-    Deno.env.get("SUPABASE_URL")!,
-    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-  );
+Deno.serve(async (req: Request) => {
+  if (req.method === 'OPTIONS') return new Response(null, { headers: CORS_HEADERS });
+
+  const log: any = { total: 0, success: 0, failed: 0 };
 
   try {
-    const apiKey = Deno.env.get("RINGOVER_API_KEY");
-    const fromNumber = Deno.env.get("RINGOVER_SMS_FROM_NUMBER");
-    if (!apiKey) {
-      return new Response(
-        JSON.stringify({ error: "RINGOVER_API_KEY not configured" }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
+    if (!(await accesCockpit125(req))) {
+      return new Response(JSON.stringify({ error: 'Accès réservé au cockpit 125' }),
+        { status: 401, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } });
     }
 
-    const body: RequestBody = await req.json();
-    const { calendly_event_uuid, groupe_numero, date_formation, heure_groupe, destinataires } = body;
-
-    if (!destinataires?.length) {
-      return new Response(
-        JSON.stringify({ error: "No destinataires" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
+    if (!RINGOVER_API_KEY || !FROM_NUMBER) {
+      return new Response(JSON.stringify({ error: 'Configuration serveur incomplete' }),
+        { status: 500, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } });
     }
 
-    const details: Array<{
-      invitee_uuid?: string;
-      numero: string;
-      statut: string;
-      message_id?: string;
-      error?: string;
-    }> = [];
+    const authHeader = req.headers.get('Authorization') ?? '';
+    const jwt = authHeader.replace('Bearer ', '');
+    const { data: { user } } = await supabase.auth.getUser(jwt);
+    const userId = user?.id ?? null;
+
+    const payload = await req.json();
+    const { calendly_event_uuid, groupe_numero, date_formation, heure_groupe, destinataires } = payload;
+
+    if (!Array.isArray(destinataires) || destinataires.length === 0) {
+      return new Response(JSON.stringify({ error: 'destinataires doit etre un tableau non vide' }),
+        { status: 400, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } });
+    }
+    if (destinataires.length > MAX_DESTINATAIRES) {
+      return new Response(JSON.stringify({ error: `Trop de destinataires (max ${MAX_DESTINATAIRES})` }),
+        { status: 400, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } });
+    }
+
+    log.total = destinataires.length;
+    const details: any[] = [];
 
     for (let i = 0; i < destinataires.length; i++) {
       const d = destinataires[i];
-      const normalized = normalizePhone(d.numero);
+      const { invitee_uuid, prenom, numero, message } = d;
+      const telephoneNormalise = toE164(numero) ?? numero;
 
-      const { data: inserted } = await supabase.from("sms_queue").insert({
-        telephone: d.numero,
-        prenom: d.prenom,
-        message: d.message,
-        date_formation: date_formation || null,
-        heure_groupe: heure_groupe || `${groupe_numero}`,
+      const { data: inserted, error: insertErr } = await supabase.from('sms_queue').insert({
+        telephone: telephoneNormalise,
+        prenom: prenom ?? '',
+        message,
+        date_formation: date_formation ?? new Date().toISOString().split('T')[0],
+        heure_groupe: heure_groupe ?? '',
+        statut: 'pending',
         calendly_event_uuid,
-        invitee_uuid: d.invitee_uuid || null,
-        groupe_numero,
-        statut: "pending",
-      }).select("id").single();
+        invitee_uuid,
+        groupe_numero: groupe_numero ?? null,
+        envoye_par: userId
+      }).select('id').single();
 
-      const rowId = inserted?.id;
-
-      try {
-        const smsPayload: Record<string, string> = {
-          from_number: normalizePhone(fromNumber || ""),
-          to_number: normalized,
-          content: d.message,
-        };
-
-        const smsRes = await fetch(`${RINGOVER_BASE}/push/sms`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: apiKey,
-          },
-          body: JSON.stringify(smsPayload),
-        });
-
-        const smsBody = await smsRes.json().catch(() => ({}));
-
-        if (smsRes.ok || smsRes.status === 202) {
-          const messageId = smsBody?.message_id || smsBody?.id || null;
-          if (rowId) {
-            await supabase.from("sms_queue").update({
-              statut: "sent",
-              sent_at: new Date().toISOString(),
-              ringover_message_id: String(messageId),
-            }).eq("id", rowId);
-          }
-          details.push({ invitee_uuid: d.invitee_uuid, numero: d.numero, statut: "sent", message_id: String(messageId) });
-        } else {
-          const errMsg = `HTTP ${smsRes.status}: ${JSON.stringify(smsBody)}`;
-          if (rowId) {
-            await supabase.from("sms_queue").update({
-              statut: "failed",
-              erreur_message: errMsg,
-            }).eq("id", rowId);
-          }
-          details.push({ invitee_uuid: d.invitee_uuid, numero: d.numero, statut: "failed", error: errMsg });
-        }
-      } catch (err) {
-        const errMsg = String(err);
-        if (rowId) {
-          await supabase.from("sms_queue").update({
-            statut: "failed",
-            erreur_message: errMsg,
-          }).eq("id", rowId);
-        }
-        details.push({ invitee_uuid: d.invitee_uuid, numero: d.numero, statut: "failed", error: errMsg });
+      if (insertErr || !inserted) {
+        log.failed++;
+        details.push({ invitee_uuid, numero, statut: 'failed', error: `DB insert: ${insertErr?.message}` });
+        continue;
       }
 
-      if (i < destinataires.length - 1) await sleep(SLEEP_MS);
+      const result = await sendOneSms(numero, message);
+
+      // Valeurs EN (maintenant acceptées par le check constraint élargi)
+      await supabase.from('sms_queue').update({
+        statut: result.success ? 'sent' : 'failed',
+        ringover_message_id: result.messageId ?? null,
+        erreur_message: result.error ?? null,
+        sent_at: result.success ? new Date().toISOString() : null
+      }).eq('id', inserted.id);
+
+      if (result.success) {
+        log.success++;
+        details.push({ invitee_uuid, numero, statut: 'sent', message_id: result.messageId });
+      } else {
+        log.failed++;
+        details.push({ invitee_uuid, numero, statut: 'failed', error: result.error });
+      }
+
+      if (i < destinataires.length - 1) await new Promise(r => setTimeout(r, 1100));
     }
 
-    const success = details.filter((d) => d.statut === "sent").length;
-    const failed = details.filter((d) => d.statut === "failed").length;
-
-    await supabase.from("sync_log_unifie").insert({
-      source: "ringover_sms",
-      status: failed === 0 ? "success" : "partial",
-      nb_fetched: destinataires.length,
-      nb_inserted: success,
-      nb_skipped: failed,
-      metadata: { details },
+    await supabase.from('sync_log_unifie').insert({
+      source: 'ringover_sms',
+      status: log.failed === 0 ? 'success' : (log.success === 0 ? 'error' : 'partial'),
+      nb_fetched: log.total,
+      nb_inserted: log.success,
+      nb_skipped: log.failed,
+      details: { calendly_event_uuid, groupe_numero, date_formation, user_id: userId },
+      table_name: 'sms_queue'
     });
 
-    return new Response(
-      JSON.stringify({ total: destinataires.length, success, failed, details }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } },
-    );
-  } catch (err) {
-    await supabase.from("sync_log_unifie").insert({
-      source: "ringover_sms",
-      status: "error",
-      error_message: String(err),
-    }).catch(() => {});
-
-    return new Response(
-      JSON.stringify({ error: String(err) }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-    );
+    return new Response(JSON.stringify({ ...log, details }), { headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } });
+  } catch (err: any) {
+    console.error('send-sms-ringover error:', err);
+    try {
+      await supabase.from('sync_log_unifie').insert({ source: 'ringover_sms', status: 'error', error_message: err.message });
+    } catch { /* journal facultatif */ }
+    return new Response(JSON.stringify({ error: err.message, ...log }), { status: 500, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } });
   }
 });
